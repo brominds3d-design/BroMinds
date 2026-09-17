@@ -1,0 +1,163 @@
+@import 'tailwindcss' source("../");
+
+/*
+  DuoPixel — sistema visual
+  -------------------------
+  Direccao: "oficina de filamento". Papel quente em vez de branco puro,
+  tinta quase preta com um toque de ameixa, laranja de filamento derretido
+  como unico acento forte e ameixa profunda para a colecao de Halloween.
+  A textura recorrente do site sao as linhas de camada de uma impressao 3D.
+*/
+
+@theme {
+  /* Superficies */
+  --color-paper: oklch(0.973 0.008 84);
+  --color-paper-2: oklch(0.946 0.013 80);
+  --color-paper-3: oklch(0.912 0.016 76);
+
+  /* Tinta */
+  --color-ink: oklch(0.203 0.016 310);
+  --color-ink-2: oklch(0.386 0.018 305);
+  --color-ink-3: oklch(0.556 0.014 300);
+
+  /* Acentos */
+  --color-ember: oklch(0.658 0.169 46);
+  --color-ember-deep: oklch(0.552 0.158 40);
+  --color-plum: oklch(0.322 0.094 322);
+  --color-sage: oklch(0.652 0.058 138);
+
+  /* Tipografia */
+  --font-display:
+    'Bricolage Grotesque', 'Trebuchet MS', ui-sans-serif, sans-serif;
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Raios: cantos ligeiramente arredondados, nunca pilulas */
+  --radius-card: 14px;
+  --radius-card-lg: 20px;
+
+  --ease-out-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* Espaco para a barra de navegacao fixa quando se salta para uma ancora */
+    scroll-padding-top: 5.5rem;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Foco visivel e coerente em todo o site, essencial para teclado */
+  :focus-visible {
+    outline: 2px solid var(--color-ember);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background-color: var(--color-ember);
+    color: var(--color-paper);
+  }
+}
+
+@layer components {
+  /* Rotulo tecnico em monospace: categorias, precos, metadados */
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 0.688rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* A textura da casa: linhas de camada de impressao */
+  .layer-lines {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-ink) 7%, transparent) 0 1px,
+      transparent 1px 6px
+    );
+  }
+
+  /* Grelha de voxels, usada com opacidade baixa atras das seccoes escuras */
+  .voxel-grid {
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in oklab, var(--color-paper) 9%, transparent) 0 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--color-paper) 9%, transparent) 0 1px,
+        transparent 1px
+      );
+    background-size: 28px 28px;
+  }
+
+  /* Granulado fino que tira o aspecto "digital limpo" das areas grandes */
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.4;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
+  }
+}
+
+/* Revelacao ao entrar na pagina, escalonada por `animation-delay` inline.
+   Quem prefere menos movimento ve tudo ja no lugar. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.rise {
+  animation: rise 0.62s var(--ease-out-soft) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .rise {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
