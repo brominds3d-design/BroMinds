@@ -1,6 +1,9 @@
 import { readFileSync, existsSync, statSync } from 'node:fs'
-import { join, extname } from 'node:path'
+import { join, extname, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import server from '../dist/server/server.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -25,14 +28,26 @@ export default async function handler(req, res) {
     const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost'
     const cleanUrl = (req.url || '/').split('?')[0]
 
-    // 1. Tentar servir ficheiro estático de dist/client ou public
+    // Remove a barra inicial e eventuais prefixos
     const relativePath = cleanUrl.replace(/^\//, '')
-    const possiblePaths = [
+    const withoutAssetsPrefix = relativePath.replace(/^assets\//, '')
+
+    // Locais possíveis onde o Vite / TanStack guardam os ficheiros estáticos
+    const candidatePaths = [
+      // Relativo ao ficheiro api/index.js (garantido no contentor da Vercel)
+      join(__dirname, '..', 'dist', 'client', relativePath),
+      join(__dirname, '..', 'dist', 'client', 'assets', withoutAssetsPrefix),
+      join(__dirname, '..', 'public', relativePath),
+      // Fallback via process.cwd()
       join(process.cwd(), 'dist', 'client', relativePath),
+      join(process.cwd(), 'dist', 'client', 'assets', withoutAssetsPrefix),
       join(process.cwd(), 'public', relativePath),
+      join(process.cwd(), 'assets', 'dist', 'client', relativePath),
+      join(process.cwd(), 'assets', 'dist', 'client', 'assets', withoutAssetsPrefix),
+      join(process.cwd(), 'assets', 'public', relativePath),
     ]
 
-    for (const filePath of possiblePaths) {
+    for (const filePath of candidatePaths) {
       if (existsSync(filePath) && statSync(filePath).isFile()) {
         const ext = extname(filePath).toLowerCase()
         const contentType = MIME_TYPES[ext] || 'application/octet-stream'
@@ -45,7 +60,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. SSR: Executar o servidor TanStack Start para rotas normais
+    // SSR: Execução do TanStack Start
     const fullUrl = `${proto}://${host}${req.url}`
     const headers = new Headers()
     for (const [key, value] of Object.entries(req.headers)) {
