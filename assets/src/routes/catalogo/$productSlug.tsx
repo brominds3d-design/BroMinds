@@ -1,36 +1,40 @@
-import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { createFileRoute, Link } from '@tanstack/react-router'
+import {
+  ArrowLeft,
+  ChevronRight,
+  MessageCircle,
+  Minus,
+  Plus,
+  ShoppingBag,
+} from 'lucide-react'
 import { getProductBySlug, getRelatedProducts } from '@/data/catalog'
 import { ProductCard } from '@/components/ProductCard'
-import { Section, SectionHeading } from '@/components/Section'
-import {
-  MessageCircle,
-  Ruler,
-  Check,
-  ChevronRight,
-} from 'lucide-react'
 
 export const Route = createFileRoute('/catalogo/$productSlug')({
-  loader: async ({ params: { productSlug } }) => {
-    const product = await getProductBySlug(productSlug)
+  loader: async ({ params }) => {
+    const product = await getProductBySlug(params.productSlug)
 
-    if (!product) throw notFound()
+    if (!product) {
+      throw new Error('Produto não encontrado')
+    }
 
-    const related = await getRelatedProducts(product, 4)
+    const relatedProducts = await getRelatedProducts(
+      product.categoryId ?? product.category_id,
+      product.id,
+    )
 
     return {
       product,
-      related,
+      relatedProducts,
     }
   },
-
-  component: ProductDetailPage,
+  component: ProductPage,
 })
 
-function ProductDetailPage() {
-  const { product, related } = Route.useLoaderData()
+function ProductPage() {
+  const { product, relatedProducts } = Route.useLoaderData()
 
-  // Variantes disponíveis
   const variants =
     product.variants && product.variants.length > 0
       ? product.variants
@@ -42,22 +46,6 @@ function ProductDetailPage() {
           },
         ]
 
-  // Estado da variante
-  const [selectedVariant, setSelectedVariant] = useState(
-    variants[0]
-  )
-
-  // Estado da cor
-  const [selectedColor, setSelectedColor] = useState(
-    product.colors[0] ?? null
-  )
-
-  // Estado da imagem principal
-  const [selectedImage, setSelectedImage] = useState(
-    product.images[0]?.src ?? ''
-  )
-
-  // Contactos WhatsApp
   const whatsappContacts = [
     {
       name: 'Tiago Costa',
@@ -71,15 +59,21 @@ function ProductDetailPage() {
     },
   ]
 
-  // Contacto selecionado
-  const [selectedContact, setSelectedContact] = useState(
-    whatsappContacts[0]
+  const [selectedVariant, setSelectedVariant] = useState(variants[0])
+  const [selectedColor, setSelectedColor] = useState(
+    product.colors?.[0] ?? null,
   )
+  const [selectedImage, setSelectedImage] = useState(
+    product.images?.[0]?.src ?? '',
+  )
+  const [selectedContact, setSelectedContact] = useState(
+    whatsappContacts[0],
+  )
+  const [quantity, setQuantity] = useState(1)
 
   /*
-   * Quando o produto muda através de
-   * "Também Podes Gostar", atualizamos
-   * todos os estados dependentes do produto.
+   * Quando se muda para outro produto através de
+   * "Também podes gostar", atualiza tudo.
    */
   useEffect(() => {
     const newVariants =
@@ -94,11 +88,11 @@ function ProductDetailPage() {
           ]
 
     setSelectedVariant(newVariants[0])
-    setSelectedColor(product.colors[0] ?? null)
-    setSelectedImage(product.images[0]?.src ?? '')
+    setSelectedColor(product.colors?.[0] ?? null)
+    setSelectedImage(product.images?.[0]?.src ?? '')
+    setQuantity(1)
   }, [product])
 
-  // Mensagem automática para o WhatsApp
   const messageText = encodeURIComponent(
     `Olá BroMinds! Gostava de encomendar a peça "${product.name}" no tamanho ${
       selectedVariant.name
@@ -106,375 +100,380 @@ function ProductDetailPage() {
       selectedColor
         ? ` e na cor ${selectedColor.name}`
         : ''
-    }. (Preço: ${selectedVariant.price.toFixed(2)} €)`
+    }. Quantidade: ${quantity}. (Preço: ${(
+      selectedVariant.price * quantity
+    ).toFixed(2)} €)`,
   )
 
+  const totalPrice = selectedVariant.price * quantity
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
+    <div className="min-h-screen bg-paper text-ink">
+      {/* =========================================================
+          CABEÇALHO
+      ========================================================== */}
+      <header className="border-b border-paper-3 bg-paper">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex min-h-[72px] items-center justify-between">
+            <Link
+              to="/catalogo"
+              className="flex items-center gap-2 text-sm font-semibold text-ink-2 transition hover:text-ink"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Voltar ao catálogo
+            </Link>
 
-      {/* Breadcrumb */}
-      <nav className="mb-6 flex items-center gap-2 text-xs text-ink-3">
-        <a
-          href="/"
-          className="hover:text-ink"
-        >
-          Início
-        </a>
+            <div className="hidden items-center gap-2 text-sm text-ink-3 sm:flex">
+              <Link
+                to="/catalogo"
+                className="transition hover:text-ink"
+              >
+                Catálogo
+              </Link>
 
-        <ChevronRight className="h-3 w-3" />
+              <ChevronRight className="h-4 w-4" />
 
-        <a
-          href="/catalogo"
-          className="hover:text-ink"
-        >
-          Catálogo
-        </a>
+              <span className="max-w-[220px] truncate text-ink">
+                {product.name}
+              </span>
+            </div>
+          </div>
+        </div>
+      </header>
 
-        <ChevronRight className="h-3 w-3" />
+      {/* =========================================================
+          PRODUTO
+      ========================================================== */}
+      <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] lg:gap-12 xl:gap-16">
+          {/* =====================================================
+              GALERIA
+          ====================================================== */}
+          <div className="min-w-0">
+            <div className="overflow-hidden rounded-3xl border border-paper-3 bg-paper-2 shadow-sm">
+              <div className="aspect-square w-full">
+                {selectedImage ? (
+                  <img
+                    src={selectedImage}
+                    alt={product.name}
+                    className="h-full w-full object-cover transition-all duration-300"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm text-ink-3">
+                    Sem imagem disponível
+                  </div>
+                )}
+              </div>
+            </div>
 
-        <span className="font-medium text-ink">
-          {product.name}
-        </span>
-      </nav>
+            {/* Miniaturas */}
+            {product.images && product.images.length > 1 && (
+              <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
+                {product.images.map((image: any, index: number) => {
+                  const isSelected = selectedImage === image.src
 
-      <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
-
-        {/* =========================
-            GALERIA
-        ========================== */}
-
-        <div className="flex flex-col gap-4">
-
-          <div className="relative aspect-square overflow-hidden rounded-2xl border border-paper-3 bg-paper-2">
-
-            {selectedImage ? (
-              <img
-                src={selectedImage}
-                alt={product.name}
-                className="h-full w-full object-cover transition-all duration-300"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-ink-3">
-                Sem imagem disponível
+                  return (
+                    <button
+                      key={`${image.src}-${index}`}
+                      type="button"
+                      onClick={() => setSelectedImage(image.src)}
+                      className={`aspect-square overflow-hidden rounded-xl border bg-paper-2 transition ${
+                        isSelected
+                          ? 'border-ember ring-2 ring-ember/20'
+                          : 'border-paper-3 hover:border-ink-3'
+                      }`}
+                    >
+                      <img
+                        src={image.src}
+                        alt={`${product.name} ${index + 1}`}
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                  )
+                })}
               </div>
             )}
-
           </div>
 
-          {/* Miniaturas */}
-          {product.images.length > 1 && (
-            <div className="flex gap-3 overflow-x-auto pb-2">
+          {/* =====================================================
+              INFORMAÇÃO DO PRODUTO
+          ====================================================== */}
+          <div className="min-w-0">
+            <div className="lg:sticky lg:top-8">
+              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ember">
+                <ShoppingBag className="h-4 w-4" />
+                Impressão 3D
+              </div>
 
-              {product.images.map((img, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() =>
-                    setSelectedImage(img.src)
-                  }
-                  className={`relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border-2 transition ${
-                    selectedImage === img.src
-                      ? 'border-ember'
-                      : 'border-paper-3 opacity-70 hover:opacity-100'
-                  }`}
-                >
-                  <img
-                    src={img.src}
-                    alt={img.alt}
-                    className="h-full w-full object-cover"
-                  />
-                </button>
-              ))}
+              <h1 className="text-3xl font-extrabold leading-tight text-ink sm:text-4xl lg:text-5xl">
+                {product.name}
+              </h1>
 
-            </div>
-          )}
-
-        </div>
-
-        {/* =========================
-            INFORMAÇÕES
-        ========================== */}
-
-        <div className="flex flex-col gap-6">
-
-          {/* Nome + preço */}
-          <div>
-
-            <span className="text-xs font-bold uppercase tracking-wider text-ember">
-              {product.category?.name ?? 'Peça 3D'}
-            </span>
-
-            <h1 className="mt-1 text-3xl font-extrabold text-ink sm:text-4xl">
-              {product.name}
-            </h1>
-
-            <div className="mt-3 flex flex-wrap items-baseline gap-3">
-
-              <span className="text-3xl font-black text-ink">
-                {selectedVariant.price.toFixed(2)} €
-              </span>
-
-              {selectedVariant.dimensions && (
-                <span className="flex items-center gap-1 text-xs text-ink-3">
-                  <Ruler className="h-3.5 w-3.5" />
-                  {selectedVariant.dimensions}
-                </span>
+              {product.shortDescription && (
+                <p className="mt-4 text-base leading-7 text-ink-2 sm:text-lg">
+                  {product.shortDescription}
+                </p>
               )}
 
-            </div>
-
-          </div>
-
-          {/* Descrição */}
-          <p className="text-sm leading-relaxed text-ink-2">
-            {product.description ||
-              product.shortDescription}
-          </p>
-
-          <hr className="border-paper-3" />
-
-          {/* =========================
-              VARIANTES
-          ========================== */}
-
-          {variants.length > 1 && (
-            <div>
-
-              <div className="mb-2.5 flex items-center justify-between">
-
-                <span className="text-xs font-bold uppercase tracking-wider text-ink">
-                  Tamanho:{' '}
-                  <span className="font-normal text-ink-2">
-                    {selectedVariant.name}
-                  </span>
+              <div className="mt-6 flex items-end gap-2">
+                <span className="text-3xl font-extrabold text-ink">
+                  {totalPrice.toFixed(2)} €
                 </span>
 
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-
-                {variants.map((variant) => {
-
-                  const isSelected =
-                    selectedVariant.name ===
-                    variant.name
-
-                  return (
-                    <button
-                      key={variant.name}
-                      type="button"
-                      onClick={() =>
-                        setSelectedVariant(
-                          variant
-                        )
-                      }
-                      className={`flex flex-col items-center justify-center rounded-xl border p-3 text-center transition ${
-                        isSelected
-                          ? 'border-ink bg-ink text-paper shadow-sm'
-                          : 'border-paper-3 bg-paper text-ink hover:border-ink/40'
-                      }`}
-                    >
-
-                      <span className="text-sm font-semibold">
-                        {variant.name}
-                      </span>
-
-                      <span
-                        className={`text-xs ${
-                          isSelected
-                            ? 'text-paper/80'
-                            : 'text-ink-3'
-                        }`}
-                      >
-                        {variant.price.toFixed(2)} €
-                      </span>
-
-                    </button>
-                  )
-                })}
-
-              </div>
-
-            </div>
-          )}
-
-          {/* =========================
-              CORES
-          ========================== */}
-
-          {product.colors.length > 0 && (
-            <div>
-
-              <div className="mb-2.5 flex items-center justify-between">
-
-                <span className="text-xs font-bold uppercase tracking-wider text-ink">
-                  Cor do Filamento:{' '}
-                  <span className="font-normal text-ink-2">
-                    {selectedColor?.name}
+                {quantity > 1 && (
+                  <span className="pb-1 text-sm text-ink-3">
+                    {selectedVariant.price.toFixed(2)} € / unidade
                   </span>
-                </span>
-
+                )}
               </div>
 
-              <div className="flex flex-wrap gap-2.5">
+              <div className="my-7 h-px bg-paper-3" />
 
-                {product.colors.map((color) => {
+              {/* Descrição */}
+              {product.description && (
+                <div className="mb-7">
+                  <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-ink">
+                    Sobre esta peça
+                  </h2>
 
-                  const isSelected =
-                    selectedColor?.name ===
-                    color.name
+                  <p className="whitespace-pre-line text-sm leading-6 text-ink-2">
+                    {product.description}
+                  </p>
+                </div>
+              )}
 
-                  return (
-                    <button
-                      key={color.name}
-                      type="button"
-                      onClick={() =>
-                        setSelectedColor(color)
-                      }
-                      title={color.name}
-                      className={`group relative flex h-10 w-10 items-center justify-center rounded-full border-2 transition ${
-                        isSelected
-                          ? 'scale-110 border-ink'
-                          : 'border-transparent hover:scale-105'
-                      }`}
-                    >
+              {/* =================================================
+                  VARIANTES
+              ================================================== */}
+              {variants.length > 1 && (
+                <div className="mb-7">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="text-sm font-bold text-ink">
+                      Tamanho / Variante
+                    </h2>
 
-                      <span
-                        className="h-8 w-8 rounded-full border border-black/10 shadow-inner"
-                        style={{
-                          backgroundColor:
-                            color.hex,
-                        }}
-                      />
+                    <span className="text-xs text-ink-3">
+                      {selectedVariant.name}
+                    </span>
+                  </div>
 
-                      {isSelected && (
-                        <Check className="absolute h-4 w-4 text-white drop-shadow-md" />
-                      )}
+                  <div className="grid gap-2">
+                    {variants.map((variant: any, index: number) => {
+                      const selected =
+                        selectedVariant.name === variant.name
 
-                    </button>
-                  )
-                })}
+                      return (
+                        <button
+                          key={`${variant.name}-${index}`}
+                          type="button"
+                          onClick={() => setSelectedVariant(variant)}
+                          className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+                            selected
+                              ? 'border-ember bg-ember/5'
+                              : 'border-paper-3 bg-paper hover:bg-paper-2'
+                          }`}
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-ink">
+                              {variant.name}
+                            </p>
 
+                            {variant.dimensions && (
+                              <p className="mt-1 text-xs text-ink-3">
+                                {variant.dimensions}
+                              </p>
+                            )}
+                          </div>
+
+                          <span className="text-sm font-bold text-ink">
+                            {variant.price.toFixed(2)} €
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* =================================================
+                  CORES
+              ================================================== */}
+              {product.colors && product.colors.length > 0 && (
+                <div className="mb-7">
+                  <h2 className="mb-3 text-sm font-bold text-ink">
+                    Cor
+                  </h2>
+
+                  <div className="flex flex-wrap gap-2">
+                    {product.colors.map((color: any, index: number) => {
+                      const selected =
+                        selectedColor?.name === color.name
+
+                      return (
+                        <button
+                          key={`${color.name}-${index}`}
+                          type="button"
+                          onClick={() => setSelectedColor(color)}
+                          className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                            selected
+                              ? 'border-ember bg-ember text-paper'
+                              : 'border-paper-3 bg-paper text-ink hover:bg-paper-2'
+                          }`}
+                        >
+                          {color.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* =================================================
+                  QUANTIDADE
+              ================================================== */}
+              <div className="mb-7">
+                <h2 className="mb-3 text-sm font-bold text-ink">
+                  Quantidade
+                </h2>
+
+                <div className="flex h-12 w-fit items-center overflow-hidden rounded-xl border border-paper-3 bg-paper">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuantity((value) => Math.max(1, value - 1))
+                    }
+                    className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
+                    aria-label="Diminuir quantidade"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+
+                  <span className="flex w-12 justify-center text-sm font-bold text-ink">
+                    {quantity}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuantity((value) => value + 1)
+                    }
+                    className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
+                    aria-label="Aumentar quantidade"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
-            </div>
-          )}
+              {/* =================================================
+                  CONTACTO
+              ================================================== */}
+              <div className="mb-4">
+                <h2 className="mb-3 text-sm font-bold text-ink">
+                  Contactar
+                </h2>
 
-          {/* =========================
-              WHATSAPP
-          ========================== */}
-
-          <div className="pt-4">
-
-            <div className="mb-3">
-
-              <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-ink">
-                Falar com
-              </span>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-
-                {whatsappContacts.map(
-                  (contact) => {
-
-                    const isSelected =
-                      selectedContact.phone ===
-                      contact.phone
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {whatsappContacts.map((contact) => {
+                    const selected =
+                      selectedContact.phone === contact.phone
 
                     return (
                       <button
                         key={contact.phone}
                         type="button"
-                        onClick={() =>
-                          setSelectedContact(
-                            contact
-                          )
-                        }
+                        onClick={() => setSelectedContact(contact)}
                         className={`rounded-xl border p-3 text-left transition ${
-                          isSelected
-                            ? 'border-ink bg-ink text-paper shadow-sm'
-                            : 'border-paper-3 bg-paper text-ink hover:border-ink/40'
+                          selected
+                            ? 'border-ember bg-ember/5'
+                            : 'border-paper-3 bg-paper hover:bg-paper-2'
                         }`}
                       >
-
-                        <span className="block text-sm font-semibold">
+                        <p className="text-sm font-semibold text-ink">
                           {contact.name}
-                        </span>
+                        </p>
 
-                        <span
-                          className={`mt-0.5 block text-xs ${
-                            isSelected
-                              ? 'text-paper/70'
-                              : 'text-ink-3'
-                          }`}
-                        >
+                        <p className="mt-1 text-xs text-ink-3">
                           {contact.role}
-                        </span>
-
+                        </p>
                       </button>
                     )
-                  }
-                )}
-
+                  })}
+                </div>
               </div>
 
+              {/* WhatsApp */}
+              <a
+                href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
+              >
+                <MessageCircle className="h-5 w-5" />
+                Pedir esta peça
+              </a>
+
+              <p className="mt-3 text-center text-xs leading-5 text-ink-3">
+                A mensagem será enviada diretamente para o WhatsApp de{' '}
+                {selectedContact.name}.
+              </p>
+
+              {/* Dimensões */}
+              {selectedVariant.dimensions && (
+                <div className="mt-7 rounded-2xl border border-paper-3 bg-paper-2 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-3">
+                    Dimensões
+                  </p>
+
+                  <p className="mt-1 text-sm font-semibold text-ink">
+                    {selectedVariant.dimensions}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* =========================================================
+          TAMBÉM PODES GOSTAR
+      ========================================================== */}
+      {relatedProducts && relatedProducts.length > 0 && (
+        <section className="border-t border-paper-3 bg-paper-2">
+          <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+            <div className="mb-7 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-ember">
+                  Descobre mais
+                </p>
+
+                <h2 className="mt-1 text-2xl font-extrabold text-ink sm:text-3xl">
+                  Também podes gostar
+                </h2>
+              </div>
+
+              <Link
+                to="/catalogo"
+                className="hidden text-sm font-semibold text-ink-2 transition hover:text-ink sm:block"
+              >
+                Ver catálogo
+              </Link>
             </div>
 
-            <a
-              href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
-            >
-
-              <MessageCircle className="h-5 w-5" />
-
-              Pedir esta Peça (
-              {selectedVariant.price.toFixed(2)} €
-              )
-
-            </a>
-
-            <p className="mt-2 text-center text-xs text-ink-3">
-              A mensagem será enviada diretamente para o WhatsApp de{' '}
-              {selectedContact.name}.
-            </p>
-
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {relatedProducts.slice(0, 4).map(
+                (relatedProduct: any, index: number) => (
+                  <ProductCard
+                    key={relatedProduct.id}
+                    product={relatedProduct}
+                    delay={0.03 * index}
+                  />
+                ),
+              )}
+            </div>
           </div>
-
-        </div>
-      </div>
-
-      {/* =========================
-          PRODUTOS RELACIONADOS
-      ========================== */}
-
-      {related.length > 0 && (
-        <Section className="mt-16 border-t border-paper-3 pt-12">
-
-          <SectionHeading
-            label="Mais Peças"
-            title="Também Podes Gostar"
-            description="Outros modelos da mesma coleção para combinar."
-          />
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-            {related.map(
-              (item, index) => (
-                <ProductCard
-                  key={item.id}
-                  product={item}
-                  delay={0.04 * index}
-                />
-              )
-            )}
-
-          </div>
-
-        </Section>
+        </section>
       )}
-
     </div>
   )
 }
