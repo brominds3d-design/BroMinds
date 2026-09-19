@@ -170,7 +170,7 @@ function Hero({
             >
               <Stat icon={Boxes} value={`${totalProducts} modelos`} label="disponíveis" />
               <Stat icon={Palette} value={`${categoryCount} categorias`} label="em catálogo" />
-              <Stat icon={Sparkles} value="Produção rápida" label={site.info.prazo} />
+           <Stat icon={Sparkles} value="Personalização" label="Cores e detalhes à tua escolha" />
             </dl>
           </div>
 
@@ -238,7 +238,10 @@ function CustomOrderBanner() {
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <OrderButton size="lg" className="bg-paper text-ink hover:bg-ember hover:text-paper" />
+   <OrderButton
+  size="lg"
+  className="bg-paper !text-ink hover:bg-ember hover:!text-ink"
+/>
 
             <Link
               to="/contacto"

@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Plus, Trash2, CheckCircle, Edit3, X, Image as ImageIcon, UploadCloud, Loader2 } from 'lucide-react'
-import heic2any from 'heic2any'
+import { Plus, Trash2, CheckCircle, Edit3, X, Image as ImageIcon, UploadCloud, Loader2, Palette } from 'lucide-react'
+
 export const Route = createFileRoute('/admin')({
   component: AdminPage,
 })
@@ -18,11 +18,13 @@ const DEFAULT_PALETTE = [
   { name: 'Terracota', hex: '#b4633f' },
   { name: 'Dourado', hex: '#a8873f' },
 ]
-// Comprime e converte qualquer imagem para JPEG web seguro antes do upload
+
+// Converte HEIC/HEIF para JPEG e corrige a rotação de fotos do iPhone
 async function processImage(file: File): Promise<Blob> {
+  if (typeof window === 'undefined') return file
+
   let blobToProcess: Blob = file
 
-  // Se for foto direta do iPhone (HEIC/HEIF) ou tiver nome IMG_...
   const isHeic =
     file.type === 'image/heic' ||
     file.type === 'image/heif' ||
@@ -31,67 +33,119 @@ async function processImage(file: File): Promise<Blob> {
 
   if (isHeic) {
     try {
-      const converted = await heic2any({
-        blob: file,
-        toType: 'image/jpeg',
-        quality: 0.85,
-      })
-      blobToProcess = Array.isArray(converted) ? converted[0] : converted
-    } catch (e) {
-      console.warn('Conversão HEIC falhou, a tentar leitura direta:', e)
+      const mod = await import('heic-to')
+      const convertFn =
+        (mod as any).heicTo ||
+        (mod as any).default?.heicTo ||
+        (mod as any).default ||
+        mod
+
+      if (typeof convertFn === 'function') {
+        const result = await convertFn({
+          blob: file,
+          type: 'image/jpeg',
+          quality: 0.88,
+        })
+
+        const resolvedBlob = Array.isArray(result) ? result[0] : result
+        if (resolvedBlob instanceof Blob && resolvedBlob.size > 0) {
+          blobToProcess = new Blob([await resolvedBlob.arrayBuffer()], {
+            type: 'image/jpeg',
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('Falha na conversão do heic-to:', err)
     }
   }
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(blobToProcess)
-    reader.onload = (event) => {
-      const img = new Image()
-      img.src = event.target?.result as string
-      img.onload = () => {
-        const MAX_WIDTH = 1600
-        const MAX_HEIGHT = 1600
-        let width = img.width
-        let height = img.height
+  if ('createImageBitmap' in window) {
+    try {
+      const imgBitmap = await createImageBitmap(blobToProcess, {
+        imageOrientation: 'from-image',
+      })
 
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width
-            width = MAX_WIDTH
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height
-            height = MAX_HEIGHT
-          }
+      const MAX_WIDTH = 1600
+      const MAX_HEIGHT = 1600
+      let width = imgBitmap.width
+      let height = imgBitmap.height
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height = Math.round(height * (MAX_WIDTH / width))
+          width = MAX_WIDTH
         }
-
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-
-        const ctx = canvas.getContext('2d')
-        if (!ctx) {
-          resolve(blobToProcess)
-          return
+      } else {
+        if (height > MAX_HEIGHT) {
+          width = Math.round(width * (MAX_HEIGHT / height))
+          height = MAX_HEIGHT
         }
+      }
 
-        ctx.drawImage(img, 0, 0, width, height)
-        canvas.toBlob(
-          (blob) => {
-            if (blob) resolve(blob)
-            else resolve(blobToProcess)
-          },
-          'image/jpeg',
-          0.85
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(imgBitmap, 0, 0, width, height)
+        const finalBlob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, 'image/jpeg', 0.85)
         )
+        if (finalBlob) return finalBlob
       }
-      img.onerror = () => {
-        // Se ainda assim o canvas falhar, envia o blob original
-        resolve(blobToProcess)
-      }
+    } catch (bitmapErr) {
+      console.warn('createImageBitmap ignorado:', bitmapErr)
     }
-    reader.onerror = (err) => reject(err)
+  }
+
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(blobToProcess)
+    const img = new Image()
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const MAX_WIDTH = 1600
+      const MAX_HEIGHT = 1600
+      let width = img.width
+      let height = img.height
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height = Math.round(height * (MAX_WIDTH / width))
+          width = MAX_WIDTH
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width = Math.round(width * (MAX_HEIGHT / height))
+          height = MAX_HEIGHT
+        }
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(blobToProcess)
+        return
+      }
+
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (blob) => resolve(blob || blobToProcess),
+        'image/jpeg',
+        0.85
+      )
+    }
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(blobToProcess)
+    }
+
+    img.src = objectUrl
   })
 }
 
@@ -105,9 +159,14 @@ function AdminPage() {
   const [imagesList, setImagesList] = useState<Array<{ src: string; alt: string }>>([])
   const [featured, setFeatured] = useState(false)
 
+  // Gestão de cores
+  const [availablePalette, setAvailablePalette] = useState(DEFAULT_PALETTE)
   const [selectedColors, setSelectedColors] = useState<Array<{ name: string; hex: string }>>([
     DEFAULT_PALETTE[0],
   ])
+  const [newColorName, setNewColorName] = useState('')
+  const [newColorHex, setNewColorHex] = useState('#6b3e26')
+  const [showColorForm, setShowColorForm] = useState(false)
 
   const [variants, setVariants] = useState<Array<{ name: string; price: number; dimensions: string }>>([
     { name: 'Único', price: 0, dimensions: '' },
@@ -134,7 +193,6 @@ function AdminPage() {
     fetchProducts()
   }, [])
 
-  // Upload de multiplas fotos para o Supabase Storage
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
@@ -145,8 +203,6 @@ function AdminPage() {
 
       for (let i = 0; i < files.length; i++) {
         const originalFile = files[i]
-        
-        // Converte e comprime automaticamente antes de enviar
         const processedBlob = await processImage(originalFile)
         const cleanFileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.jpg`
         const filePath = `itens/${cleanFileName}`
@@ -185,7 +241,21 @@ function AdminPage() {
     setShortDesc(prod.short_description || '')
     setImagesList(prod.images && Array.isArray(prod.images) ? prod.images : [])
     setFeatured(!!prod.featured)
-    setSelectedColors(prod.colors && prod.colors.length > 0 ? prod.colors : [DEFAULT_PALETTE[0]])
+
+    const prodColors = prod.colors && prod.colors.length > 0 ? prod.colors : [DEFAULT_PALETTE[0]]
+    setSelectedColors(prodColors)
+
+    // Adiciona cores personalizadas existentes à paleta visível
+    setAvailablePalette((prev) => {
+      const combined = [...prev]
+      prodColors.forEach((c: { name: string; hex: string }) => {
+        if (!combined.some((p) => p.name.toLowerCase() === c.name.toLowerCase())) {
+          combined.push(c)
+        }
+      })
+      return combined
+    })
+
     setVariants(
       prod.variants && prod.variants.length > 0
         ? prod.variants
@@ -203,6 +273,7 @@ function AdminPage() {
     setFeatured(false)
     setSelectedColors([DEFAULT_PALETTE[0]])
     setVariants([{ name: 'Único', price: 0, dimensions: '' }])
+    setShowColorForm(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -212,6 +283,35 @@ function AdminPage() {
     } else {
       setSelectedColors([...selectedColors, color])
     }
+  }
+
+  // Adicionar nova cor personalizada
+  const handleAddNewColor = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newColorName.trim()) return
+
+    const newColor = {
+      name: newColorName.trim(),
+      hex: newColorHex,
+    }
+
+    if (!availablePalette.some((c) => c.name.toLowerCase() === newColor.name.toLowerCase())) {
+      setAvailablePalette((prev) => [...prev, newColor])
+    }
+
+    if (!selectedColors.some((c) => c.name.toLowerCase() === newColor.name.toLowerCase())) {
+      setSelectedColors((prev) => [...prev, newColor])
+    }
+
+    setNewColorName('')
+    setShowColorForm(false)
+  }
+
+  // Remover cor personalizada da paleta e da seleção
+  const removeColorFromPalette = (colorName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setAvailablePalette((prev) => prev.filter((c) => c.name !== colorName))
+    setSelectedColors((prev) => prev.filter((c) => c.name !== colorName))
   }
 
   const addVariant = () => {
@@ -371,7 +471,7 @@ function AdminPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,.HEIC,.HEIF"
             onChange={handleFileUpload}
             className="hidden"
           />
@@ -445,20 +545,62 @@ function AdminPage() {
           />
         </div>
 
-        {/* Cores */}
+        {/* CORES DISPONÍVEIS COM OPÇÃO DE REMOÇÃO DE CORES PERSONALIZADAS */}
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-ink mb-2">
-            Cores Disponíveis
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-ink">
+              Cores Disponíveis para esta Peça
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowColorForm(!showColorForm)}
+              className="text-xs flex items-center gap-1 text-ember hover:underline font-semibold"
+            >
+              <Palette className="h-3.5 w-3.5" />
+              {showColorForm ? 'Fechar formulário' : '+ Adicionar Nova Cor'}
+            </button>
+          </div>
+
+          {showColorForm && (
+            <div className="mb-3.5 p-3 rounded-xl border border-paper-3 bg-paper-2 flex flex-wrap items-center gap-2.5">
+              <input
+                type="color"
+                value={newColorHex}
+                onChange={(e) => setNewColorHex(e.target.value)}
+                className="h-9 w-9 rounded-lg border border-paper-3 cursor-pointer p-0.5 bg-paper"
+                title="Escolher código de cor"
+              />
+              <input
+                type="text"
+                placeholder="Nome da cor (ex: Castanho)"
+                value={newColorName}
+                onChange={(e) => setNewColorName(e.target.value)}
+                className="flex-1 min-w-[150px] rounded-lg border border-paper-3 bg-paper p-2 text-xs text-ink outline-none focus:border-ember"
+              />
+              <span className="font-mono text-xs text-ink-3 uppercase px-1">
+                {newColorHex}
+              </span>
+              <button
+                type="button"
+                onClick={handleAddNewColor}
+                className="bg-ink hover:bg-ember text-paper px-3 py-2 rounded-lg text-xs font-semibold transition"
+              >
+                Guardar Cor
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
-            {DEFAULT_PALETTE.map((col) => {
+            {availablePalette.map((col) => {
               const active = selectedColors.some((c) => c.name === col.name)
+              const isCustom = !DEFAULT_PALETTE.some((d) => d.name === col.name)
+
               return (
                 <button
                   type="button"
                   key={col.name}
                   onClick={() => toggleColor(col)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition ${
+                  className={`group flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition ${
                     active
                       ? 'border-ember bg-ember/10 text-ink font-bold shadow-sm'
                       : 'border-paper-3 bg-paper hover:bg-paper-2 text-ink-2'
@@ -468,7 +610,16 @@ function AdminPage() {
                     className="w-3.5 h-3.5 rounded-full border border-black/10"
                     style={{ backgroundColor: col.hex }}
                   />
-                  {col.name}
+                  <span>{col.name}</span>
+                  {isCustom && (
+                    <span
+                      onClick={(e) => removeColorFromPalette(col.name, e)}
+                      className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-xs text-ink-3 hover:bg-red-500 hover:text-white transition"
+                      title={`Eliminar ${col.name} da lista`}
+                    >
+                      ×
+                    </span>
+                  )}
                 </button>
               )
             })}

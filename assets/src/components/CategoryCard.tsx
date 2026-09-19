@@ -20,8 +20,8 @@ export function CategoryCard({
 
   return (
     <Link
-      to="/catalogo/$categorySlug"
-      params={{ categorySlug: category.slug }}
+      to="/catalogo"
+      search={{ categoria: category.id || category.slug }}
       className={`group relative flex overflow-hidden rounded-card-lg bg-ink transition-transform duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 ${
         size === 'lg' ? 'sm:col-span-2' : ''
       } ${delay === undefined ? '' : 'rise'}`}
