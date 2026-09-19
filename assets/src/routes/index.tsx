@@ -7,7 +7,6 @@ import { Section, SectionHeading } from '@/components/Section'
 import {
   getCategoryCounts,
   getFeaturedCategories,
-  getFeaturedProducts,
   getProducts,
   getRecentProducts,
 } from '@/data/catalog'
@@ -16,10 +15,9 @@ import { site } from '@/data/site'
 export const Route = createFileRoute('/')({
   component: HomePage,
   loader: async () => {
-    const [allCategories, featuredProducts, recentProducts, counts, allProducts] =
+    const [allCategories, recentProducts, counts, allProducts] =
       await Promise.all([
         getFeaturedCategories(),
-        getFeaturedProducts(8),
         getRecentProducts(4),
         getCategoryCounts(),
         getProducts(),
@@ -35,7 +33,6 @@ export const Route = createFileRoute('/')({
 
     return {
       featuredCategories: activeCategories,
-      featuredProducts,
       recentProducts,
       counts,
       totalProducts: allProducts.length,
@@ -46,7 +43,6 @@ export const Route = createFileRoute('/')({
 function HomePage() {
   const {
     featuredCategories,
-    featuredProducts,
     recentProducts,
     counts,
     totalProducts,
@@ -78,14 +74,14 @@ function HomePage() {
         </div>
       </Section>
 
-      {/* 2. PRODUTOS RECENTES EM SEGUNDO LUGAR */}
+      {/* 2. NOVIDADES DA OFICINA */}
       {recentProducts.length > 0 && (
         <Section id="recentes">
           <SectionHeading
             label="Novidades da Oficina"
             title="Adicionados Recentemente"
             description="As últimas criações e peças acabadas de sair da nossa impressora 3D."
-            action={{ href: '/catalogo', label: 'Ver novidades no catálogo' } as any}
+            action={{ href: '/catalogo', label: 'Ver todo o catálogo' } as any}
           />
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -96,28 +92,7 @@ function HomePage() {
         </Section>
       )}
 
-      {/* 3. CATÁLOGO GERAL DE MODELOS */}
-      <Section id="catalogo">
-        <SectionHeading
-          label="Catálogo da Loja"
-          title="Peças e Modelos Disponíveis"
-          description="Modelos 3D com acabamento de alta qualidade prontos a encomendar."
-          action={{ href: '/catalogo', label: 'Ver catálogo completo' } as any}
-        />
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {featuredProducts.map((product, index) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              priority={index < 4}
-              delay={0.04 * index}
-            />
-          ))}
-        </div>
-      </Section>
-
-      {/* Banner de Encomendas Personalizadas */}
+      {/* 3. BANNER DE ENCOMENDAS PERSONALIZADAS */}
       <CustomOrderBanner />
     </>
   )
@@ -199,10 +174,9 @@ function Hero({
             </dl>
           </div>
 
-          {/* Coluna Direita: Cartão com Logótipo Grande Oficial */}
+          {/* Coluna Direita: Cartão com Logótipo */}
           <div className="hidden lg:col-span-5 lg:flex justify-center items-center">
             <div className="relative w-full max-w-[340px] aspect-square rounded-3xl border border-paper-3 bg-gradient-to-br from-paper via-paper to-ember/5 p-8 shadow-xl flex flex-col items-center justify-center group hover:border-ember/30 transition-all duration-500">
-              {/* Efeito de brilho de fundo */}
               <div className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-ember/20 to-[var(--color-gold)]/20 blur-xl opacity-50 group-hover:opacity-80 transition duration-500" />
               
               <div className="relative z-10 flex flex-col items-center text-center">
@@ -225,6 +199,7 @@ function Hero({
     </div>
   )
 }
+
 function Stat({
   icon: Icon,
   value,
