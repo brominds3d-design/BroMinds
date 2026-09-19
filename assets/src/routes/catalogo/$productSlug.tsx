@@ -60,15 +60,20 @@ function ProductPage() {
   ]
 
   const [selectedVariant, setSelectedVariant] = useState(variants[0])
+
   const [selectedColor, setSelectedColor] = useState(
     product.colors?.[0] ?? null,
   )
+
   const [selectedImage, setSelectedImage] = useState(
     product.images?.[0]?.src ?? '',
   )
-  const [selectedContact, setSelectedContact] = useState(
-    whatsappContacts[0],
-  )
+
+  // Nenhum contacto fica selecionado por defeito
+  const [selectedContact, setSelectedContact] = useState<
+    (typeof whatsappContacts)[number] | null
+  >(null)
+
   const [quantity, setQuantity] = useState(1)
 
   /*
@@ -90,6 +95,7 @@ function ProductPage() {
     setSelectedVariant(newVariants[0])
     setSelectedColor(product.colors?.[0] ?? null)
     setSelectedImage(product.images?.[0]?.src ?? '')
+    setSelectedContact(null)
     setQuantity(1)
   }, [product])
 
@@ -376,7 +382,7 @@ function ProductPage() {
                 <div className="grid gap-2 sm:grid-cols-2">
                   {whatsappContacts.map((contact) => {
                     const selected =
-                      selectedContact.phone === contact.phone
+                      selectedContact?.phone === contact.phone
 
                     return (
                       <button
@@ -385,7 +391,7 @@ function ProductPage() {
                         onClick={() => setSelectedContact(contact)}
                         className={`rounded-xl border p-3 text-left transition ${
                           selected
-                            ? 'border-ember bg-ember/5'
+                            ? 'border-ember bg-ember/5 ring-2 ring-ember/10'
                             : 'border-paper-3 bg-paper hover:bg-paper-2'
                         }`}
                       >
@@ -402,23 +408,41 @@ function ProductPage() {
                 </div>
               </div>
 
-              {/* WhatsApp */}
-              <a
-                href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
-              >
-                <MessageCircle className="h-5 w-5" />
-                Pedir esta peça
-              </a>
+              {/* =================================================
+                  BOTÃO WHATSAPP
+              ================================================== */}
+              {selectedContact ? (
+                <>
+                  <a
+                    href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
+                  >
+                    <MessageCircle className="h-5 w-5" />
+                    Pedir esta peça
+                  </a>
 
-              <p className="mt-3 text-center text-xs leading-5 text-ink-3">
-                A mensagem será enviada diretamente para o WhatsApp de{' '}
-                {selectedContact.name}.
-              </p>
+                  <p className="mt-3 text-center text-xs leading-5 text-ink-3">
+                    A mensagem será enviada diretamente para o
+                    WhatsApp de {selectedContact.name}.
+                  </p>
+                </>
+              ) : (
+                <div className="mt-4 rounded-xl border border-dashed border-paper-3 bg-paper-2 px-6 py-4 text-center">
+                  <p className="text-sm font-semibold text-ink">
+                    Escolhe quem contactar
+                  </p>
 
-              {/* Dimensões */}
+                  <p className="mt-1 text-xs leading-5 text-ink-3">
+                    Seleciona Tiago ou Inês antes de enviar o pedido.
+                  </p>
+                </div>
+              )}
+
+              {/* =================================================
+                  DIMENSÕES
+              ================================================== */}
               {selectedVariant.dimensions && (
                 <div className="mt-7 rounded-2xl border border-paper-3 bg-paper-2 p-4">
                   <p className="text-xs font-bold uppercase tracking-wide text-ink-3">
