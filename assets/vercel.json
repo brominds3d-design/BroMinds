@@ -1,12 +1,16 @@
 {
-  "rewrites": [
+  "routes": [
     {
-      "source": "/assets/(.*)",
-      "destination": "/dist/client/assets/$1"
+      "src": "/assets/(.*)",
+      "dest": "/dist/client/assets/$1"
     },
     {
-      "source": "/(.*)",
-      "destination": "/api/index"
+      "src": "/(.*\\.(?:js|css|ico|png|jpg|jpeg|svg|webp|woff|woff2))",
+      "dest": "/dist/client/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index"
     }
   ]
 }
