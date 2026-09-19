@@ -1,4 +1,4 @@
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 import { Footer } from '@/components/Footer'
 import { Header } from '@/components/Header'
 import { site } from '@/data/site'
@@ -34,8 +34,29 @@ export const Route = createRootRoute({
       },
     ],
   }),
+  notFoundComponent: NotFoundFallback,
   shellComponent: RootDocument,
 })
+
+function NotFoundFallback() {
+  return (
+    <div className="mx-auto flex min-h-[55vh] max-w-md flex-col items-center justify-center px-4 py-16 text-center">
+      <span className="label-mono mb-2 rounded-full border border-ink/10 bg-paper-2 px-3 py-1 text-xs text-ink-3">
+        404
+      </span>
+      <h1 className="text-2xl font-bold text-ink sm:text-3xl">Página não encontrada</h1>
+      <p className="mt-2 text-sm text-ink-2">
+        A página ou recurso que procuras não existe ou mudou de endereço.
+      </p>
+      <a
+        href="/"
+        className="mt-6 inline-flex items-center justify-center rounded-card bg-ember px-5 py-2.5 text-sm font-semibold text-paper shadow-sm transition hover:bg-ember-deep"
+      >
+        Voltar à página inicial
+      </a>
+    </div>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

@@ -1,89 +1,81 @@
 import { Link } from '@tanstack/react-router'
-import { ArrowRight } from 'lucide-react'
-import { ColorDots } from './ColorDots'
-import type { ProductWithCategory } from '@/data/catalog'
-import { formatPrice } from '@/lib/format'
-import { img, imgSrcSet } from '@/lib/image'
+import { Product } from '@/data/catalog'
 
-/**
- * Cartao de produto do catalogo.
- *
- * Todo o cartao e clicavel (a etiqueta "Ver detalhes" e o alvo visivel, mas a
- * area de toque cobre o cartao inteiro, o que importa no telemovel).
- */
-export function ProductCard({
-  product,
-  priority = false,
-  delay,
-}: {
-  product: ProductWithCategory
-  /** Desliga o lazy-loading nos primeiros cartoes visiveis. */
+interface ProductCardProps {
+  product: Product
   priority?: boolean
-  /** Atraso da animacao de entrada, em segundos. */
   delay?: number
-}) {
-  const cover = product.images[0]
+}
+
+export function ProductCard({ product, priority = false, delay = 0 }: ProductCardProps) {
+  const hasImages = product.images && product.images.length > 0 && product.images[0].src
+  const hasHoverImage = product.images && product.images.length > 1 && product.images[1].src
 
   return (
-    <article
-      className={`group relative flex flex-col overflow-hidden rounded-card-lg border border-paper-3 bg-paper transition-[transform,box-shadow,border-color] duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 hover:border-ink/20 hover:shadow-[0_18px_40px_-24px_rgba(32,20,40,0.45)] focus-within:-translate-y-1 ${
-        delay === undefined ? '' : 'rise'
-      }`}
-      style={delay === undefined ? undefined : { animationDelay: `${delay}s` }}
+    <Link
+      to="/catalogo/$productSlug"
+      params={{ productSlug: product.slug }}
+      style={{ animationDelay: `${delay}s` }}
+      className="group flex flex-col overflow-hidden rounded-2xl border border-paper-3 bg-paper transition duration-300 hover:-translate-y-1 hover:border-ink/20 hover:shadow-lg"
     >
-      <div className="relative aspect-square overflow-hidden bg-paper-2">
-        <img
-          src={img(cover.src, { width: 620, height: 620, fit: 'cover' })}
-          srcSet={imgSrcSet(cover.src, [320, 480, 620, 840], { aspect: 1 })}
-          sizes="(min-width: 1024px) 24rem, (min-width: 640px) 44vw, 90vw"
-          alt={cover.alt}
-          width={620}
-          height={620}
-          loading={priority ? 'eager' : 'lazy'}
-          decoding="async"
-          className="h-full w-full object-cover transition-transform duration-[900ms] ease-[var(--ease-out-soft)] group-hover:scale-[1.045]"
-        />
+      {/* Contetor da Imagem com suporte a Hover */}
+      <div className="relative aspect-square w-full overflow-hidden bg-paper-2">
+        {hasImages ? (
+          <>
+            {/* Foto 1 (Capa) */}
+            <img
+              src={product.images[0].src}
+              alt={product.images[0].alt || product.name}
+              loading={priority ? 'eager' : 'lazy'}
+              className={`h-full w-full object-cover transition-all duration-500 ease-out ${
+                hasHoverImage
+                  ? 'group-hover:scale-105 group-hover:opacity-0'
+                  : 'group-hover:scale-105'
+              }`}
+            />
 
-        {product.category ? (
-          <span className="label-mono absolute left-3 top-3 rounded-full bg-paper/88 px-2.5 py-1 text-ink-2 backdrop-blur-sm">
+            {/* Foto 2 (Revelada no Hover) */}
+            {hasHoverImage && (
+              <img
+                src={product.images[1].src}
+                alt={`${product.name} perspetiva secundária`}
+                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-all duration-500 ease-out group-hover:scale-105 group-hover:opacity-100"
+              />
+            )}
+          </>
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-xs font-mono text-ink-3">
+            Sem imagem
+          </div>
+        )}
+
+        {/* Tag da Categoria */}
+        {product.category && (
+          <span className="label-mono absolute left-3 top-3 z-10 rounded-full bg-paper/90 px-2.5 py-1 text-[11px] text-ink-2 shadow-sm backdrop-blur-sm">
             {product.category.name}
           </span>
-        ) : null}
+        )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-3 p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="font-display text-[1.06rem] font-bold leading-tight sm:text-lg">
-            {product.name}
-          </h3>
-          <span className="shrink-0 font-mono text-[0.95rem] font-medium text-ember-deep">
-            {formatPrice(product.price)}
+      {/* Info da Peça */}
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="text-base font-bold text-ink group-hover:text-ember transition-colors line-clamp-1">
+          {product.name}
+        </h3>
+
+        {product.shortDescription && (
+          <p className="mt-1 text-xs text-ink-3 line-clamp-2 leading-relaxed">
+            {product.shortDescription}
+          </p>
+        )}
+
+        <div className="mt-auto pt-3 flex items-center justify-between border-t border-paper-2">
+          <span className="text-xs text-ink-3">A partir de</span>
+          <span className="text-sm font-extrabold font-mono text-ink">
+            {product.basePrice.toFixed(2)} €
           </span>
         </div>
-
-        <p className="text-[0.86rem] leading-relaxed text-ink-2">
-          {product.shortDescription}
-        </p>
-
-        <div className="mt-auto flex items-center justify-between gap-3 border-t border-paper-3 pt-3.5">
-          <ColorDots colors={product.colors} />
-
-          <Link
-            to="/produtos/$productSlug"
-            params={{ productSlug: product.slug }}
-            className="flex items-center gap-1.5 text-[0.84rem] font-semibold text-ink transition-colors hover:text-ember"
-          >
-            {/* Estende o alvo de clique a todo o cartao */}
-            <span className="absolute inset-0 z-10" aria-hidden="true" />
-            Ver detalhes
-            <ArrowRight
-              className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1"
-              aria-hidden="true"
-            />
-            <span className="sr-only"> de {product.name}</span>
-          </Link>
-        </div>
       </div>
-    </article>
+    </Link>
   )
 }

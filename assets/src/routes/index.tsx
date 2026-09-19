@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ArrowRight, Boxes, Palette, Sparkles } from 'lucide-react'
+import { ArrowRight, Boxes, Palette, ShoppingBag, Sparkles, Layers } from 'lucide-react'
 import { CategoryCard } from '@/components/CategoryCard'
 import { OrderButton } from '@/components/OrderButton'
 import { ProductCard } from '@/components/ProductCard'
@@ -12,17 +12,35 @@ import {
   getRecentProducts,
 } from '@/data/catalog'
 import { site } from '@/data/site'
-import { img, imgSrcSet } from '@/lib/image'
 
 export const Route = createFileRoute('/')({
   component: HomePage,
-  loader: () => ({
-    featuredCategories: getFeaturedCategories(),
-    featuredProducts: getFeaturedProducts(4),
-    recentProducts: getRecentProducts(4),
-    counts: getCategoryCounts(),
-    totalProducts: getProducts().length,
-  }),
+  loader: async () => {
+    const [allCategories, featuredProducts, recentProducts, counts, allProducts] =
+      await Promise.all([
+        getFeaturedCategories(),
+        getFeaturedProducts(8),
+        getRecentProducts(4),
+        getCategoryCounts(),
+        getProducts(),
+      ])
+
+    // Filtra para remover temporariamente a coleção de Natal
+    const activeCategories = allCategories.filter(
+      (cat) =>
+        cat.id !== 'natal' &&
+        !cat.slug?.toLowerCase().includes('natal') &&
+        !cat.name?.toLowerCase().includes('natal')
+    )
+
+    return {
+      featuredCategories: activeCategories,
+      featuredProducts,
+      recentProducts,
+      counts,
+      totalProducts: allProducts.length,
+    }
+  },
 })
 
 function HomePage() {
@@ -38,12 +56,13 @@ function HomePage() {
     <>
       <Hero totalProducts={totalProducts} categoryCount={featuredCategories.length} />
 
-      <Section id="categorias-destaque">
+      {/* 1. COLEÇÕES EM PRIMEIRO LUGAR */}
+      <Section id="colecoes">
         <SectionHeading
-          label="Categorias em destaque"
-          title="Escolhe por onde começar"
-          description="O catálogo está organizado por colecções. Novas categorias vão aparecendo aqui à medida que as criamos."
-          action={{ to: '/categorias', label: 'Todas as categorias' }}
+          label="Coleções BroMinds"
+          title="Explora por Categoria"
+          description="Encontra modelos utilitários, peças decorativas e projetos especiais organizados por tema."
+          action={{ href: '/categorias', label: 'Ver todas as categorias' } as any}
         />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -52,8 +71,6 @@ function HomePage() {
               key={category.id}
               category={category}
               count={counts[category.id] ?? 0}
-              /* A primeira categoria ocupa duas colunas: quebra a grelha e dá
-                 destaque à colecção da época. */
               size={index === 0 ? 'lg' : 'md'}
               delay={0.05 * index}
             />
@@ -61,12 +78,31 @@ function HomePage() {
         </div>
       </Section>
 
-      <Section>
+      {/* 2. PRODUTOS RECENTES EM SEGUNDO LUGAR */}
+      {recentProducts.length > 0 && (
+        <Section id="recentes">
+          <SectionHeading
+            label="Novidades da Oficina"
+            title="Adicionados Recentemente"
+            description="As últimas criações e peças acabadas de sair da nossa impressora 3D."
+            action={{ href: '/catalogo', label: 'Ver novidades no catálogo' } as any}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {recentProducts.map((product, index) => (
+              <ProductCard key={product.id} product={product} delay={0.05 * index} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* 3. CATÁLOGO GERAL DE MODELOS */}
+      <Section id="catalogo">
         <SectionHeading
-          label="Produtos em destaque"
-          title="As que saem mais de casa"
-          description="As peças que mais nos pedem, e as que costumamos ter prontas mais depressa."
-          action={{ to: '/catalogo', label: 'Ver catálogo' }}
+          label="Catálogo da Loja"
+          title="Peças e Modelos Disponíveis"
+          description="Modelos 3D com acabamento de alta qualidade prontos a encomendar."
+          action={{ href: '/catalogo', label: 'Ver catálogo completo' } as any}
         />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -74,29 +110,15 @@ function HomePage() {
             <ProductCard
               key={product.id}
               product={product}
-              priority={index < 2}
-              delay={0.05 * index}
+              priority={index < 4}
+              delay={0.04 * index}
             />
           ))}
         </div>
       </Section>
 
-      <Section>
-        <SectionHeading
-          label="Chegaram agora"
-          title="Acabadas de sair da impressora"
-          description="Os desenhos mais recentes. Se alguma te interessar, diz — as primeiras séries são pequenas."
-        />
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {recentProducts.map((product, index) => (
-            <ProductCard key={product.id} product={product} delay={0.05 * index} />
-          ))}
-        </div>
-      </Section>
-
-      <ComoFunciona />
-      <CallToAction />
+      {/* Banner de Encomendas Personalizadas */}
+      <CustomOrderBanner />
     </>
   )
 }
@@ -109,115 +131,100 @@ function Hero({
   categoryCount: number
 }) {
   return (
-    <div className="relative overflow-hidden border-b border-paper-3">
-      {/* Camada de textura: linhas de camada a esvanecer para baixo */}
+    <div className="relative overflow-hidden border-b border-paper-3 bg-gradient-to-b from-paper to-paper-2/40">
       <div
-        className="layer-lines pointer-events-none absolute inset-0 opacity-45 [mask-image:linear-gradient(to_bottom,black,transparent_78%)]"
+        className="layer-lines pointer-events-none absolute inset-0 opacity-30 [mask-image:linear-gradient(to_bottom,black,transparent_90%)]"
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto grid max-w-6xl gap-10 px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-14 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-14 lg:pb-20 lg:pt-20">
-        <div className="flex flex-col items-start gap-6">
-          <span className="rise label-mono flex items-center gap-2 rounded-full border border-ink/12 bg-paper px-3 py-1.5 text-ink-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-ember" aria-hidden="true" />
-            Impressão 3D · {site.location}
-          </span>
-
-          <h1
-            className="rise text-[2.5rem] leading-[1.02] sm:text-[3.4rem] lg:text-[3.9rem]"
-            style={{ animationDelay: '0.06s' }}
-          >
-            Peças impressas
-            <br />
-            em casa,{' '}
-            <span className="relative inline-block">
-              <span className="relative z-10">duas a duas</span>
-              {/* Sublinhado pintado à mão, em vez de um destaque rectangular */}
-              <span
-                className="absolute inset-x-0 bottom-1 z-0 h-[0.32em] -rotate-[0.6deg] rounded-[2px] bg-ember/32"
-                aria-hidden="true"
-              />
+      <div className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12 lg:py-14">
+        <div className="grid items-center gap-8 lg:grid-cols-12">
+          {/* Coluna Esquerda: Texto e Botões */}
+          <div className="flex flex-col items-start gap-5 lg:col-span-7">
+            <span className="rise label-mono flex items-center gap-2 rounded-full border border-ember/25 bg-ember/10 px-3.5 py-1 text-xs font-semibold text-ember shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-ember animate-pulse" aria-hidden="true" />
+              BroMinds · Impressão 3D & Design Criativo
             </span>
-            .
-          </h1>
 
-          <p
-            className="rise max-w-[46ch] text-[1.02rem] leading-relaxed text-ink-2"
-            style={{ animationDelay: '0.12s' }}
-          >
-            Somos a Marta e a Rita, duas irmãs com duas impressoras na sala.
-            Desenhamos e imprimimos peças pequenas — decoração de época,
-            organizadores para casa e encomendas à medida. Tudo o que está aqui
-            já saiu da nossa máquina.
-          </p>
-
-          <div
-            className="rise flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center"
-            style={{ animationDelay: '0.18s' }}
-          >
-            <Link
-              to="/catalogo"
-              className="group inline-flex items-center justify-center gap-2.5 rounded-card bg-ember px-6 py-4 font-semibold text-paper shadow-[0_10px_30px_-14px_oklch(0.658_0.169_46/0.9)] transition-[transform,background-color] duration-200 hover:bg-ember-deep active:scale-[0.985]"
+            <h1
+              className="rise text-[2.4rem] leading-[1.05] sm:text-[3.2rem] lg:text-[3.8rem] font-extrabold text-ink"
+              style={{ animationDelay: '0.06s' }}
             >
-              Consultar catálogo
-              <ArrowRight
-                className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1"
-                aria-hidden="true"
-              />
-            </Link>
+              Design, precisão e{' '}
+              <span className="relative inline-block text-ember">
+                <span className="relative z-10">ideias em 3D</span>
+                <span
+                  className="absolute inset-x-0 bottom-1 z-0 h-[0.3em] -rotate-[0.6deg] rounded-[2px] bg-[var(--color-gold)]/35"
+                  aria-hidden="true"
+                />
+              </span>
+            </h1>
 
-            <Link
-              to="/catalogo/$categorySlug"
-              params={{ categorySlug: 'halloween' }}
-              className="inline-flex items-center justify-center gap-2 rounded-card border border-ink/18 px-6 py-4 font-semibold text-ink transition-colors hover:border-ink/40 hover:bg-paper-2"
+            <p
+              className="rise max-w-[46ch] text-base leading-relaxed text-ink-2 sm:text-lg"
+              style={{ animationDelay: '0.12s' }}
             >
-              <Sparkles className="h-4 w-4 text-plum" aria-hidden="true" />
-              Colecção Halloween
-            </Link>
+              Peças decorativas e utilitárias impressas sob encomenda com filamento premium. Feito à medida para a tua casa ou secretária.
+            </p>
+
+            <div
+              className="rise flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center pt-1"
+              style={{ animationDelay: '0.18s' }}
+            >
+              <a
+                href="#colecoes"
+                className="group inline-flex items-center justify-center gap-2 rounded-card bg-ember px-6 py-3.5 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.985]"
+              >
+                <Layers className="h-4 w-4 text-[var(--color-gold)]" />
+                Explorar Coleções
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+              </a>
+
+              <Link
+                to="/catalogo"
+                className="inline-flex items-center justify-center gap-2 rounded-card border border-paper-3 bg-paper px-6 py-3.5 font-semibold text-ink transition hover:border-ember hover:bg-paper-2"
+              >
+                <ShoppingBag className="h-4 w-4 text-ink-3" />
+                Ver Todo o Catálogo
+              </Link>
+            </div>
+
+            <dl
+              className="rise mt-1 flex flex-wrap gap-x-6 gap-y-2 border-t border-paper-3 pt-4 text-ink-2"
+              style={{ animationDelay: '0.24s' }}
+            >
+              <Stat icon={Boxes} value={`${totalProducts} modelos`} label="disponíveis" />
+              <Stat icon={Palette} value={`${categoryCount} categorias`} label="em catálogo" />
+              <Stat icon={Sparkles} value="Produção rápida" label={site.info.prazo} />
+            </dl>
           </div>
 
-          <dl
-            className="rise mt-2 flex flex-wrap gap-x-7 gap-y-3 border-t border-paper-3 pt-5 text-ink-2"
-            style={{ animationDelay: '0.24s' }}
-          >
-            <Stat icon={Boxes} value={`${totalProducts} peças`} label="no catálogo" />
-            <Stat icon={Palette} value={`${categoryCount} colecções`} label="a crescer" />
-            <Stat icon={Sparkles} value="2 impressoras" label="a trabalhar" />
-          </dl>
-        </div>
-
-        {/* Fotografia da oficina, ligeiramente rodada e sobreposta à grelha */}
-        <div
-          className="rise relative"
-          style={{ animationDelay: '0.1s' }}
-        >
-          <div className="relative overflow-hidden rounded-card-lg border border-paper-3 bg-paper-2 shadow-[0_28px_60px_-34px_rgba(32,20,40,0.5)] lg:rotate-[1.1deg]">
-            <img
-              src={img('/img/oficina-hero.png', { width: 1100, height: 760, fit: 'cover' })}
-              srcSet={imgSrcSet('/img/oficina-hero.png', [520, 760, 1100, 1440], {
-                aspect: 0.69,
-              })}
-              sizes="(min-width: 1024px) 34rem, 94vw"
-              alt="Bancada da oficina DuoPixel com uma impressora 3D a imprimir, bobinas de filamento e peças acabadas"
-              width={1100}
-              height={760}
-              loading="eager"
-              decoding="async"
-              className="h-full w-full object-cover"
-            />
-          </div>
-
-          {/* Cartão flutuante: prazo de entrega, a informação que mais perguntam */}
-          <div className="absolute -bottom-4 left-4 max-w-[15rem] rounded-card border border-paper-3 bg-paper p-3.5 shadow-[0_14px_34px_-18px_rgba(32,20,40,0.45)] sm:-bottom-6 sm:left-6">
-            <p className="label-mono mb-1 text-ember-deep">Prazo habitual</p>
-            <p className="text-[0.84rem] leading-snug text-ink-2">{site.info.prazo}</p>
+          {/* Coluna Direita: Cartão com Logótipo Grande Oficial */}
+          <div className="hidden lg:col-span-5 lg:flex justify-center items-center">
+            <div className="relative w-full max-w-[340px] aspect-square rounded-3xl border border-paper-3 bg-gradient-to-br from-paper via-paper to-ember/5 p-8 shadow-xl flex flex-col items-center justify-center group hover:border-ember/30 transition-all duration-500">
+              {/* Efeito de brilho de fundo */}
+              <div className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-ember/20 to-[var(--color-gold)]/20 blur-xl opacity-50 group-hover:opacity-80 transition duration-500" />
+              
+              <div className="relative z-10 flex flex-col items-center text-center">
+                <img
+                  src="/img/logo-brominds.png"
+                  alt="BroMinds 3D"
+                  className="w-48 h-48 object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-500"
+                />
+                <span className="mt-4 text-xs font-mono tracking-widest text-ink-3 uppercase">
+                  Oficina de Impressão 3D
+                </span>
+                <span className="text-xs font-semibold text-ember">
+                  BroMinds Oficial
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   )
 }
-
 function Stat({
   icon: Icon,
   value,
@@ -238,73 +245,21 @@ function Stat({
   )
 }
 
-const passos = [
-  {
-    numero: '01',
-    titulo: 'Escolhes a peça e a cor',
-    texto:
-      'Vês o catálogo, escolhes a peça e a cor de filamento que preferes. Todas as cores disponíveis estão na página de cada peça.',
-  },
-  {
-    numero: '02',
-    titulo: 'Mandas mensagem',
-    texto:
-      'O botão "Encomendar" abre uma mensagem já preenchida com o nome da peça. Só tens de dizer a quantidade e onde vives.',
-  },
-  {
-    numero: '03',
-    titulo: 'Imprimimos e enviamos',
-    texto: `${site.info.prazo}. ${site.info.envio}`,
-  },
-]
-
-function ComoFunciona() {
+function CustomOrderBanner() {
   return (
     <Section>
-      <SectionHeading
-        label="Como funciona"
-        title="Encomendar é uma conversa, não um checkout"
-        description="Não temos carrinho nem pagamentos no site. Preferimos combinar tudo por mensagem — é mais simples e ficamos a saber exactamente o que queres."
-      />
+      <div className="grain relative overflow-hidden rounded-card-lg bg-ember-deep px-6 py-12 text-paper sm:px-10 sm:py-16">
+        <div className="voxel-grid absolute inset-0 opacity-25" aria-hidden="true" />
 
-      {/* Escada em zig-zag: cada passo desce um pouco mais que o anterior */}
-      <ol className="grid gap-4 sm:grid-cols-3">
-        {passos.map((passo, index) => (
-          <li
-            key={passo.numero}
-            className={`relative flex flex-col gap-2.5 rounded-card-lg border border-paper-3 bg-paper-2/60 p-5 transition-colors hover:border-ink/20 sm:p-6 ${
-              index === 1 ? 'sm:mt-6' : index === 2 ? 'sm:mt-12' : ''
-            }`}
-          >
-            <span className="font-display text-[2.4rem] font-extrabold leading-none text-ember/28">
-              {passo.numero}
-            </span>
-            <h3 className="text-[1.05rem]">{passo.titulo}</h3>
-            <p className="text-[0.86rem] leading-relaxed text-ink-2">{passo.texto}</p>
-          </li>
-        ))}
-      </ol>
-    </Section>
-  )
-}
+        <div className="relative flex flex-col items-start gap-5 sm:max-w-[48ch]">
+          <span className="label-mono text-[var(--color-gold)]">Projetos Personalizados</span>
 
-function CallToAction() {
-  return (
-    <Section>
-      <div className="grain relative overflow-hidden rounded-card-lg bg-plum px-5 py-12 text-paper sm:px-10 sm:py-16">
-        <div className="voxel-grid absolute inset-0 opacity-30" aria-hidden="true" />
-
-        <div className="relative flex flex-col items-start gap-5 sm:max-w-[46ch]">
-          <span className="label-mono text-paper/58">Encomendas</span>
-
-          <h2 className="text-[1.8rem] sm:text-[2.3rem]">
-            Viste uma peça que gostavas em outra cor?
+          <h2 className="text-[1.8rem] sm:text-[2.2rem]">
+            Precisas de uma peça com medidas ou cores personalizadas?
           </h2>
 
-          <p className="text-[0.94rem] leading-relaxed text-paper/76">
-            Quase tudo o que está no catálogo pode ser impresso noutra cor ou
-            noutro tamanho, e também fazemos peças a partir da tua ideia. Manda
-            mensagem e vemos o que é possível.
+          <p className="text-[0.95rem] leading-relaxed text-paper/80">
+            Fazemos impressões sob encomenda a partir de ficheiros STL ou das tuas próprias ideias. Entra em contacto connosco para orçamentos sem compromisso.
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -314,7 +269,7 @@ function CallToAction() {
               to="/contacto"
               className="inline-flex items-center justify-center gap-2 rounded-card border border-paper/25 px-6 py-4 font-semibold text-paper transition-colors hover:bg-paper/10"
             >
-              Ver contactos
+              Contactar
             </Link>
           </div>
         </div>

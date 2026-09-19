@@ -1,11 +1,16 @@
 import { Link } from '@tanstack/react-router'
 import { Instagram, Mail, MapPin } from 'lucide-react'
 import { LogoMark, Wordmark } from './Logo'
-import { getCategories } from '@/data/catalog'
-import { emailUrl, instagramUrl, site } from '@/data/site'
+import { emailUrl, site } from '@/data/site'
+
+const categories = [
+  { id: 'halloween', name: 'Halloween' },
+  { id: 'natal', name: 'Natal' },
+  { id: 'organizacao', name: 'Organização' },
+  { id: 'decoracao', name: 'Decoração' },
+]
 
 export function Footer() {
-  const categories = getCategories()
   const year = new Date().getFullYear()
 
   return (
@@ -19,9 +24,8 @@ export function Footer() {
             <Wordmark className="text-paper" />
           </div>
 
-          <p className="max-w-[34ch] text-[0.88rem] leading-relaxed text-paper/68">
-            Duas irmãs, duas impressoras e uma sala que já não dá para mais
-            bobinas. Fazemos peças pequenas, em tiragens pequenas.
+          <p className="max-w-[36ch] text-[0.88rem] leading-relaxed text-paper/68">
+            Dois irmãos, uma impressora 3D e a vontade de dar vida a ideias em filamento. Criamos peças e decorações únicas, modelo a modelo.
           </p>
 
           <p className="flex items-center gap-2 text-[0.84rem] text-paper/58">
@@ -35,28 +39,29 @@ export function Footer() {
           <ul className="flex flex-col gap-2">
             {categories.map((category) => (
               <li key={category.id}>
-                <Link
-                  to="/catalogo/$categorySlug"
-                  params={{ categorySlug: category.slug }}
+                <a
+                  href={`/catalogo?categoria=${category.id}`}
                   className="text-[0.88rem] text-paper/76 transition-colors hover:text-ember"
                 >
                   {category.name}
-                </Link>
+                </a>
               </li>
             ))}
           </ul>
         </nav>
 
         <div>
-          <h2 className="label-mono mb-3.5 text-paper/48">Falar com nós</h2>
+          <h2 className="label-mono mb-3.5 text-paper/48">Falar connosco</h2>
           <ul className="flex flex-col gap-2.5">
             <li>
               <a
-                href={instagramUrl}
+                href="https://instagram.com/bro.minds"
+                target="_blank"
+                rel="noreferrer"
                 className="flex items-center gap-2 text-[0.88rem] text-paper/76 transition-colors hover:text-ember"
               >
-                <Instagram className="h-4 w-4" aria-hidden="true" />@
-                {site.contact.instagram}
+                <Instagram className="h-4 w-4 text-ember" aria-hidden="true" />
+                @bro.minds
               </a>
             </li>
             <li>
@@ -64,7 +69,7 @@ export function Footer() {
                 href={emailUrl}
                 className="flex items-center gap-2 text-[0.88rem] text-paper/76 transition-colors hover:text-ember"
               >
-                <Mail className="h-4 w-4" aria-hidden="true" />
+                <Mail className="h-4 w-4 text-ember" aria-hidden="true" />
                 {site.contact.email}
               </a>
             </li>

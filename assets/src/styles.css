@@ -1,30 +1,31 @@
 @import 'tailwindcss' source("../");
 
 /*
-  DuoPixel — sistema visual
+  BroMinds — Sistema Visual
   -------------------------
-  Direccao: "oficina de filamento". Papel quente em vez de branco puro,
-  tinta quase preta com um toque de ameixa, laranja de filamento derretido
-  como unico acento forte e ameixa profunda para a colecao de Halloween.
-  A textura recorrente do site sao as linhas de camada de uma impressao 3D.
+  Direção: "Oficina 3D & Design Criativo".
+  Base inspirada no logótipo oficial: Verde esmeralda vivo, toques dourados
+  e acobreados do filamento em camadas, e superfícies quentes de alta definição.
 */
 
 @theme {
-  /* Superficies */
-  --color-paper: oklch(0.973 0.008 84);
-  --color-paper-2: oklch(0.946 0.013 80);
-  --color-paper-3: oklch(0.912 0.016 76);
+  /* Superfícies */
+  --color-paper: oklch(0.978 0.006 145);
+  --color-paper-2: oklch(0.952 0.010 145);
+  --color-paper-3: oklch(0.915 0.015 145);
 
-  /* Tinta */
-  --color-ink: oklch(0.203 0.016 310);
-  --color-ink-2: oklch(0.386 0.018 305);
-  --color-ink-3: oklch(0.556 0.014 300);
+  /* Tinta / Texto */
+  --color-ink: oklch(0.205 0.020 160);
+  --color-ink-2: oklch(0.380 0.022 160);
+  --color-ink-3: oklch(0.550 0.018 160);
 
-  /* Acentos */
-  --color-ember: oklch(0.658 0.169 46);
-  --color-ember-deep: oklch(0.552 0.158 40);
-  --color-plum: oklch(0.322 0.094 322);
-  --color-sage: oklch(0.652 0.058 138);
+  /* Acentos BroMinds: Verde Esmeralda + Dourado */
+  --color-ember: oklch(0.585 0.165 158);       /* Verde Esmeralda principal */
+  --color-ember-deep: oklch(0.465 0.155 158);  /* Verde Floresta escuro */
+  --color-gold: oklch(0.720 0.145 80);         /* Dourado / Cobre das camadas */
+  --color-gold-deep: oklch(0.610 0.140 75);    /* Dourado escovado */
+  --color-plum: oklch(0.322 0.094 322);        /* Mantido p/ Halloween se necessário */
+  --color-sage: oklch(0.780 0.065 155);        /* Verde sálvia suave p/ tags */
 
   /* Tipografia */
   --font-display:
@@ -32,7 +33,7 @@
   --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'DM Mono', ui-monospace, 'SFMono-Regular', monospace;
 
-  /* Raios: cantos ligeiramente arredondados, nunca pilulas */
+  /* Raios */
   --radius-card: 14px;
   --radius-card-lg: 20px;
 
@@ -42,7 +43,6 @@
 @layer base {
   html {
     scroll-behavior: smooth;
-    /* Espaco para a barra de navegacao fixa quando se salta para uma ancora */
     scroll-padding-top: 5.5rem;
   }
 
@@ -70,7 +70,6 @@
     text-wrap: pretty;
   }
 
-  /* Foco visivel e coerente em todo o site, essencial para teclado */
   :focus-visible {
     outline: 2px solid var(--color-ember);
     outline-offset: 3px;
@@ -84,7 +83,7 @@
 }
 
 @layer components {
-  /* Rotulo tecnico em monospace: categorias, precos, metadados */
+  /* Rótulo técnico em monospace */
   .label-mono {
     font-family: var(--font-mono);
     font-size: 0.688rem;
@@ -92,7 +91,7 @@
     text-transform: uppercase;
   }
 
-  /* A textura da casa: linhas de camada de impressao */
+  /* Linhas de camada de impressão 3D */
   .layer-lines {
     background-image: repeating-linear-gradient(
       to bottom,
@@ -101,7 +100,7 @@
     );
   }
 
-  /* Grelha de voxels, usada com opacidade baixa atras das seccoes escuras */
+  /* Grelha de voxels para secções escuras */
   .voxel-grid {
     background-image:
       linear-gradient(
@@ -117,7 +116,6 @@
     background-size: 28px 28px;
   }
 
-  /* Granulado fino que tira o aspecto "digital limpo" das areas grandes */
   .grain::after {
     content: '';
     position: absolute;
@@ -128,8 +126,6 @@
   }
 }
 
-/* Revelacao ao entrar na pagina, escalonada por `animation-delay` inline.
-   Quem prefere menos movimento ve tudo ja no lugar. */
 @keyframes rise {
   from {
     opacity: 0;

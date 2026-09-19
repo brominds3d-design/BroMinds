@@ -1,42 +1,49 @@
 /**
- * Configuracao da marca e dos contactos.
- *
- * ====================================================================
- *  A SUBSTITUIR ANTES DE DIVULGAR O SITE
- *  Os contactos abaixo sao valores de exemplo. Todos os botoes
- *  "Encomendar" do site sao construidos a partir deste ficheiro, por
- *  isso muda-se aqui uma vez e fica corrigido em todas as paginas.
- * ====================================================================
+ * Configuracao da marca e dos contactos — BroMinds.
+ * Todos os botoes de encomenda e contactos do site sao gerados a partir daqui.
  */
 
 /** Canal para onde o botao "Encomendar" encaminha o visitante. */
-export type OrderChannel = 'email' | 'whatsapp' | 'instagram'
+export type OrderChannel = 'whatsapp' | 'email' | 'instagram'
 
 export const site = {
-  name: 'DuoPixel',
-  tagline: 'Impressão 3D feita em casa, peça a peça',
+  name: 'BroMinds',
+  tagline: 'Impressão 3D & Design Criativo',
   description:
-    'Catálogo de peças impressas em 3D pela DuoPixel: decoração de Halloween e de Natal, organizadores para casa e peças personalizadas. Encomendas por mensagem.',
-  location: 'Leiria, Portugal',
+    'Catálogo de peças decorativas e utilitárias impressas em 3D pela BroMinds. Encomendas personalizadas com acabamento de alta qualidade.',
+  location: 'Portugal',
 
-  /** Canal usado pelos botoes de encomenda. Muda para 'whatsapp' ou 'instagram' quando quiseres. */
-  orderChannel: 'email' as OrderChannel,
+  /** Canal principal de encomenda ativado por defeito */
+  orderChannel: 'whatsapp' as OrderChannel,
 
   contact: {
-    // A SUBSTITUIR pelo endereco real
-    email: 'ola@duopixel.pt',
-    // A SUBSTITUIR pelo utilizador real de Instagram (sem @)
-    instagram: 'duopixel.pt',
-    // A SUBSTITUIR pelo numero real, em formato internacional e sem simbolos: 351XXXXXXXXX
-    whatsapp: '351900000000',
+    email: 'brominds3d@gmail.com',
+    instagram: 'brominds.3d', // podes alterar se tiverem outro handle
+    whatsapp: '351916175751', // Teu WhatsApp (Tiago) como principal de encomendas
   },
 
-  /** Tempos e condicoes mostrados nas paginas de produto e de contacto. */
+  /** Contactos individuais da equipa BroMinds */
+  team: {
+    tiago: {
+      name: 'Tiago Costa',
+      phone: '+351 916 175 751',
+      rawPhone: '351916175751',
+      role: 'Modelação & Produção 3D',
+    },
+    ines: {
+      name: 'Inês Costa',
+      phone: '+351 911 565 367',
+      rawPhone: '351911565367',
+      role: 'Atendimento & Encomendas',
+    },
+  },
+
+  /** Informações de prazos, envios e pagamento */
   info: {
-    prazo: '2 a 4 dias úteis para peças em stock',
-    prazoPersonalizado: '3 a 5 dias úteis para peças personalizadas',
-    envio: 'Envio CTT para todo o país, 3,50 €. Entrega em mão em Leiria sem custo.',
-    pagamento: 'MB WAY ou transferência, após confirmarmos a encomenda por mensagem.',
+    prazo: '2 a 4 dias úteis para peças em catálogo',
+    prazoPersonalizado: '3 a 5 dias úteis para projetos por medida',
+    envio: 'Envio CTT / transportadora para todo o país e ilhas.',
+    pagamento: 'MB WAY ou transferência bancária após confirmação da peça.',
   },
 } as const
 
@@ -45,30 +52,33 @@ export const whatsappUrl = `https://wa.me/${site.contact.whatsapp}`
 export const emailUrl = `mailto:${site.contact.email}`
 
 /**
- * Constroi o link de encomenda para um produto, com a mensagem ja preenchida
- * no canal escolhido. Sem produto, devolve um link de contacto generico.
+ * Constroi o link de encomenda com texto ja pre-formatado para o WhatsApp ou Email.
  */
 export function orderLink(options?: {
   productName?: string
   color?: string
+  size?: string
+  price?: number
 }): string {
-  const { productName, color } = options ?? {}
+  const { productName, color, size, price } = options ?? {}
 
   const subject = productName
     ? `Encomenda: ${productName}`
-    : `Pedido de informação — ${site.name}`
+    : `Pedido de Informação — ${site.name}`
 
   const body = productName
-    ? `Olá! Gostaria de encomendar "${productName}"${
-        color ? ` na cor ${color}` : ''
-      }.\n\nQuantidade: 1\nNome:\nLocalidade:`
-    : `Olá! Gostaria de saber mais sobre as vossas peças.`
+    ? `Olá BroMinds! Gostaria de encomendar a seguinte peça:\n\n` +
+      `• Peça: ${productName}\n` +
+      (size ? `• Tamanho: ${size}\n` : '') +
+      (color ? `• Cor: ${color}\n` : '') +
+      (price !== undefined ? `• Valor: ${price.toFixed(2)} €\n` : '') +
+      `\nQuantidade: 1\nNome:\nMorada/Localidade:`
+    : `Olá BroMinds! Gostaria de pedir informações sobre as vossas peças e impressões 3D.`
 
   switch (site.orderChannel) {
     case 'whatsapp':
       return `${whatsappUrl}?text=${encodeURIComponent(body)}`
     case 'instagram':
-      // O Instagram nao aceita mensagens pre-preenchidas por link.
       return instagramUrl
     case 'email':
     default:
@@ -78,15 +88,15 @@ export function orderLink(options?: {
   }
 }
 
-/** Rotulo do botao de encomenda, adaptado ao canal configurado. */
+/** Rotulo amigavel do botao de encomenda */
 export function orderChannelLabel(): string {
   switch (site.orderChannel) {
     case 'whatsapp':
-      return 'Encomendar por WhatsApp'
+      return 'Pedir por WhatsApp'
     case 'instagram':
-      return 'Encomendar por Instagram'
+      return 'Pedir por Instagram'
     case 'email':
     default:
-      return 'Encomendar por email'
+      return 'Pedir por Email'
   }
 }

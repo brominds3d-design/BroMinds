@@ -1,30 +1,29 @@
 import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, Sparkles, MessageCircle } from 'lucide-react'
 import { LogoMark, Wordmark } from './Logo'
+import { site } from '@/data/site'
 
 const nav = [
   { to: '/', label: 'Início' },
   { to: '/catalogo', label: 'Catálogo' },
   { to: '/categorias', label: 'Categorias' },
-  { to: '/sobre', label: 'Sobre nós' },
   { to: '/contacto', label: 'Contacto' },
 ] as const
 
 /**
- * Barra de navegacao.
- *
- * Pensada primeiro para telemovel: no telemovel e um painel que abre por cima
- * do conteudo e, a partir de `md`, os links passam a estar todos visiveis.
+ * Barra de navegação BroMinds.
+ * Desktop: logo à esquerda, links centrais e ação rápida à direita.
+ * Mobile: menu drawer responsivo com animação suave.
  */
 export function Header() {
   const [open, setOpen] = useState(false)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
-  /** Fecha o painel sempre que se navega para outra pagina. */
+  /** Fecha o painel ao navegar */
   useEffect(() => setOpen(false), [pathname])
 
-  /** Impede o fundo de deslizar enquanto o painel esta aberto. */
+  /** Previne scroll do fundo com menu móvel aberto */
   useEffect(() => {
     if (!open) return
     const previous = document.body.style.overflow
@@ -35,32 +34,50 @@ export function Header() {
   }, [open])
 
   return (
-    <header className="sticky top-0 z-50 border-b border-paper-3 bg-paper/88 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-paper-3 bg-paper/90 backdrop-blur-md transition-colors">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        {/* Identidade / Logótipo */}
         <Link
           to="/"
-          className="flex items-center gap-2.5 text-ink"
-          aria-label="DuoPixel, página inicial"
+          className="group flex items-center gap-2.5 transition-transform active:scale-95"
+          aria-label="BroMinds, página inicial"
         >
-          <LogoMark className="h-[26px] w-[26px]" />
+          <div className="relative flex items-center justify-center">
+            <LogoMark className="h-8 w-8 object-contain transition-transform group-hover:scale-105" />
+          </div>
           <Wordmark />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Navegação principal">
+        {/* Navegação Desktop */}
+        <nav className="hidden items-center gap-1.5 md:flex" aria-label="Navegação principal">
           {nav.map((item) => (
             <NavLink key={item.to} to={item.to} label={item.label} />
           ))}
         </nav>
 
+        {/* Ações Rápidas à Direita */}
+        <div className="hidden items-center gap-3 md:flex">
+          <a
+            href={`https://wa.me/${site.contact.whatsapp}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-xl border border-paper-3 bg-paper px-3.5 py-2 text-xs font-semibold text-ink shadow-sm transition hover:border-ember hover:text-ember active:scale-95"
+          >
+            <MessageCircle className="h-3.5 w-3.5 text-ember" />
+            <span>Falar no WhatsApp</span>
+          </a>
+        </div>
+
+        {/* Botão Hambúrguer Mobile */}
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-controls="menu-movel"
-          className="grid h-10 w-10 place-items-center rounded-card border border-paper-3 text-ink transition-colors hover:bg-paper-2 md:hidden"
+          className="grid h-10 w-10 place-items-center rounded-xl border border-paper-3 text-ink transition hover:border-ember hover:bg-paper-2 md:hidden"
         >
           {open ? (
-            <X className="h-5 w-5" aria-hidden="true" />
+            <X className="h-5 w-5 text-ember" aria-hidden="true" />
           ) : (
             <Menu className="h-5 w-5" aria-hidden="true" />
           )}
@@ -68,13 +85,20 @@ export function Header() {
         </button>
       </div>
 
-      {/* Painel movel */}
+      {/* Painel Móvel */}
       <div
         id="menu-movel"
         hidden={!open}
-        className="border-t border-paper-3 bg-paper md:hidden"
+        className="border-t border-paper-3 bg-paper/98 px-5 py-6 shadow-xl backdrop-blur-lg md:hidden"
       >
-        <nav className="flex flex-col px-4 py-2" aria-label="Navegação principal">
+        <div className="mb-4 flex items-center justify-between pb-3 border-b border-paper-2">
+          <span className="text-xs font-mono uppercase tracking-wider text-ink-3">Menu de Navegação</span>
+          <span className="flex items-center gap-1 text-[11px] font-semibold text-ember">
+            <Sparkles className="h-3 w-3 text-[var(--color-gold)]" /> BroMinds 3D
+          </span>
+        </div>
+
+        <nav className="flex flex-col gap-1" aria-label="Navegação móvel">
           {nav.map((item, index) => {
             const isActive =
               item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)
@@ -83,19 +107,33 @@ export function Header() {
               <Link
                 key={item.to}
                 to={item.to}
-                className={`rise flex items-center justify-between border-b border-paper-2 py-3.5 font-display text-lg font-bold last:border-0 ${
-                  isActive ? 'text-ember' : 'text-ink'
+                className={`rise flex items-center justify-between rounded-xl px-3 py-3 font-display text-base font-bold transition ${
+                  isActive
+                    ? 'bg-ember/10 text-ember'
+                    : 'text-ink hover:bg-paper-2 hover:text-ember'
                 }`}
                 style={{ animationDelay: `${index * 0.04}s` }}
               >
-                {item.label}
-                <span className="label-mono text-ink-3" aria-hidden="true">
+                <span>{item.label}</span>
+                <span className="font-mono text-xs opacity-40">
                   {String(index + 1).padStart(2, '0')}
                 </span>
               </Link>
             )
           })}
         </nav>
+
+        <div className="mt-6 border-t border-paper-3 pt-5">
+          <a
+            href={`https://wa.me/${site.contact.whatsapp}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-ember py-3 text-sm font-semibold text-paper shadow-md transition hover:bg-ember-deep"
+          >
+            <MessageCircle className="h-4 w-4 text-[var(--color-gold)]" />
+            Pedir Orçamento por WhatsApp
+          </a>
+        </div>
       </div>
     </header>
   )
@@ -108,15 +146,14 @@ function NavLink({ to, label }: { to: string; label: string }) {
   return (
     <Link
       to={to}
-      className={`relative rounded-card px-3 py-2 text-[0.88rem] font-medium transition-colors ${
-        isActive ? 'text-ink' : 'text-ink-2 hover:text-ink'
+      className={`relative rounded-xl px-3.5 py-2 text-[0.88rem] font-semibold transition-colors ${
+        isActive ? 'text-ember' : 'text-ink-2 hover:text-ink'
       }`}
     >
       {label}
-      {/* Sublinhado curto no item activo, em vez de um fundo pesado */}
       <span
-        className={`absolute inset-x-3 -bottom-[1px] h-[2px] rounded-full bg-ember transition-transform duration-300 ease-[var(--ease-out-soft)] ${
-          isActive ? 'scale-x-100' : 'scale-x-0'
+        className={`absolute inset-x-3.5 -bottom-[1px] h-[2px] rounded-full bg-ember transition-all duration-300 ease-[var(--ease-out-soft)] ${
+          isActive ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
         }`}
         aria-hidden="true"
       />
