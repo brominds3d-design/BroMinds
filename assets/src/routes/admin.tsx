@@ -7,6 +7,16 @@ export const Route = createFileRoute('/admin')({
   component: AdminPage,
 })
 
+const DEFAULT_CATEGORIES = [
+  { id: 'halloween', name: 'Halloween' },
+  { id: 'natal', name: 'Natal' },
+  { id: 'casa', name: 'Casa & Utilitários' },
+  { id: 'decoracao', name: 'Decoração' },
+  { id: 'porta-chaves', name: 'Porta-chaves' },
+  { id: 'presentes', name: 'Presentes' },
+  { id: 'personalizados', name: 'Personalizados' },
+]
+
 const DEFAULT_PALETTE = [
   { name: 'Laranja', hex: '#c9622a' },
   { name: 'Preto Mate', hex: '#2a2a2e' },
@@ -151,6 +161,7 @@ async function processImage(file: File): Promise<Blob> {
 
 function AdminPage() {
   const [productsList, setProductsList] = useState<any[]>([])
+  const [categoriesList, setCategoriesList] = useState<any[]>(DEFAULT_CATEGORIES)
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const [name, setName] = useState('')
@@ -178,6 +189,17 @@ function AdminPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const fetchCategories = async () => {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('id, name')
+      .order('order', { ascending: true })
+
+    if (!error && data && data.length > 0) {
+      setCategoriesList(data)
+    }
+  }
+
   const fetchProducts = async () => {
     const { data, error } = await supabase
       .from('products')
@@ -190,6 +212,7 @@ function AdminPage() {
   }
 
   useEffect(() => {
+    fetchCategories()
     fetchProducts()
   }, [])
 
@@ -285,7 +308,6 @@ function AdminPage() {
     }
   }
 
-  // Adicionar nova cor personalizada
   const handleAddNewColor = (e: React.FormEvent) => {
     e.preventDefault()
     if (!newColorName.trim()) return
@@ -307,7 +329,6 @@ function AdminPage() {
     setShowColorForm(false)
   }
 
-  // Remover cor personalizada da paleta e da seleção
   const removeColorFromPalette = (colorName: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setAvailablePalette((prev) => prev.filter((c) => c.name !== colorName))
@@ -453,11 +474,11 @@ function AdminPage() {
             onChange={(e) => setCategoryId(e.target.value)}
             className="w-full rounded-xl border border-paper-3 bg-paper-2 p-2.5 text-sm text-ink outline-none focus:border-ember focus:bg-paper"
           >
-            <option value="halloween">Halloween</option>
-            <option value="natal">Natal</option>
-            <option value="casa">Casa & Utilitários</option>
-            <option value="decoracao">Decoração</option>
-            <option value="personalizados">Personalizados</option>
+            {categoriesList.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
           </select>
         </div>
 
