@@ -1,8 +1,7 @@
 /**
- * Camada de consulta do catalogo integrada com o Supabase.
+ * Camada de consulta do catálogo integrada 100% com o Supabase.
  */
 import { supabase } from '@/lib/supabase'
-import { categories } from './categories'
 import type { Category, Product } from './types'
 
 export interface ProductVariant {
@@ -16,21 +15,13 @@ export interface ProductWithCategory extends Omit<Product, 'price'> {
   basePrice: number
   variants?: Array<ProductVariant>
   category: Category | undefined
-  model3d?: string
 }
 
 const byOrder = (a: Category, b: Category) => a.order - b.order
 
-function mapSupabaseProduct(row: any): ProductWithCategory {
+function mapSupabaseProduct(row: any, categoriesList: Array<Category> = []): ProductWithCategory {
   const variants: Array<ProductVariant> = Array.isArray(row.variants) ? row.variants : []
   const basePrice = Number(row.base_price ?? (variants[0]?.price || 0))
-
-  // Deteta se o produto tem modelo 3D no Supabase ou se é o Monopoly pelo slug/nome
-  const isMonopoly =
-    row.slug?.includes('monopoly') ||
-    row.name?.toLowerCase().includes('monopoly')
-
-  const model3d = row.model_3d || row.model3d || (isMonopoly ? '/Untitled.glb' : undefined)
 
   return {
     id: String(row.id),
@@ -49,52 +40,76 @@ function mapSupabaseProduct(row: any): ProductWithCategory {
     details: Array.isArray(row.details) ? row.details : [],
     featured: Boolean(row.featured),
     createdAt: row.created_at || new Date().toISOString(),
-    category: categories.find((c) => c.id === row.category_id),
-    model3d,
+    category: categoriesList.find((c) => c.id === row.category_id),
   }
 }
 
-export function getCategories(): Array<Category> {
-  return [...categories].sort(byOrder)
-}
-
-export function getFeaturedCategories(): Array<Category> {
-  return getCategories().filter((c) => c.featured)
-}
-
-export function getCategoryBySlug(slug: string): Category | undefined {
-  return categories.find((c) => c.slug === slug)
-}
-
-/** Busca todos os produtos ativos do Supabase */
-export async function getProducts(): Promise<Array<ProductWithCategory>> {
+/** Busca todas as categorias do Supabase */
+export async function getCategories(): Promise<Array<Category>> {
   const { data, error } = await supabase
-    .from('products')
+    .from('categories')
     .select('*')
-    .order('created_at', { ascending: false })
+    .order('order', { ascending: true })
 
   if (error || !data) {
-    console.error('Erro ao buscar produtos do Supabase:', error)
+    console.error('Erro ao procurar categorias no Supabase:', error)
     return []
   }
 
-  return data.map(mapSupabaseProduct)
+  return (data as Array<Category>).sort(byOrder)
+}
+
+export async function getFeaturedCategories(): Promise<Array<Category>> {
+  const all = await getCategories()
+  return all.filter((c) => c.featured)
+}
+
+export async function getCategoryBySlug(slug: string): Promise<Category | undefined> {
+  const { data, error } = await supabase
+    .from('categories')
+    .select('*')
+    .eq('slug', slug)
+    .single()
+
+  if (error || !data) return undefined
+  return data as Category
+}
+
+/** Busca todos os produtos do Supabase */
+export async function getProducts(): Promise<Array<ProductWithCategory>> {
+  const [categoriesData, productsData] = await Promise.all([
+    getCategories(),
+    supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false }),
+  ])
+
+  if (productsData.error || !productsData.data) {
+    console.error('Erro ao procurar produtos no Supabase:', productsData.error)
+    return []
+  }
+
+  return productsData.data.map((row) => mapSupabaseProduct(row, categoriesData))
 }
 
 export async function getProductBySlug(
   slug: string,
 ): Promise<ProductWithCategory | undefined> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('slug', slug)
-    .single()
+  const [categoriesData, productData] = await Promise.all([
+    getCategories(),
+    supabase
+      .from('products')
+      .select('*')
+      .eq('slug', slug)
+      .single(),
+  ])
 
-  if (error || !data) {
+  if (productData.error || !productData.data) {
     return undefined
   }
 
-  return mapSupabaseProduct(data)
+  return mapSupabaseProduct(productData.data, categoriesData)
 }
 
 export async function getProductsByCategory(
