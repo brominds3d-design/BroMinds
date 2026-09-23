@@ -1,81 +1,147 @@
+import { useState, useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Product } from '@/data/catalog'
+import { Heart } from 'lucide-react'
+import { getCurrentUser, toggleFavorite, getFavoriteProductIds, CustomerUser } from '@/lib/auth'
+import { AuthModal } from '@/components/AuthModal'
 
 interface ProductCardProps {
-  product: Product
-  priority?: boolean
+  product: any
   delay?: number
 }
 
-export function ProductCard({ product, priority = false, delay = 0 }: ProductCardProps) {
-  const hasImages = product.images && product.images.length > 0 && product.images[0].src
-  const hasHoverImage = product.images && product.images.length > 1 && product.images[1].src
+export function ProductCard({ product, delay = 0 }: ProductCardProps) {
+  const [isFav, setIsFav] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
+  const [user, setUser] = useState<CustomerUser | null>(null)
+
+  const firstImage = product.images?.[0]?.src || '/img/placeholder.png'
+  const secondImage = product.images?.[1]?.src
+
+  const checkStatus = async () => {
+    const currentUser = getCurrentUser()
+    setUser(currentUser)
+    if (currentUser) {
+      const favs = await getFavoriteProductIds(currentUser.handle)
+      setIsFav(favs.includes(String(product.id)))
+    } else {
+      setIsFav(false)
+    }
+  }
+
+  useEffect(() => {
+    checkStatus()
+
+    const onFavChange = () => checkStatus()
+    const onAuthChange = () => checkStatus()
+
+    window.addEventListener('favorites_changed', onFavChange)
+    window.addEventListener('auth_changed', onAuthChange)
+
+    return () => {
+      window.removeEventListener('favorites_changed', onFavChange)
+      window.removeEventListener('auth_changed', onAuthChange)
+    }
+  }, [product.id])
+
+  const handleHeartClick = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const currentUser = getCurrentUser()
+    if (!currentUser) {
+      setShowAuth(true)
+      return
+    }
+
+    const nextState = await toggleFavorite(currentUser.handle, String(product.id))
+    setIsFav(nextState)
+  }
+
+  const handleLoginSuccess = async (loggedUser: CustomerUser) => {
+    setUser(loggedUser)
+    const nextState = await toggleFavorite(loggedUser.handle, String(product.id))
+    setIsFav(nextState)
+  }
 
   return (
-    <Link
-      to="/catalogo/$productSlug"
-      params={{ productSlug: product.slug }}
-      style={{ animationDelay: `${delay}s` }}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-paper-3 bg-paper transition duration-300 hover:-translate-y-1 hover:border-ink/20 hover:shadow-lg"
-    >
-      {/* Contetor da Imagem com suporte a Hover */}
-      <div className="relative aspect-square w-full overflow-hidden bg-paper-2">
-        {hasImages ? (
-          <>
-            {/* Foto 1 (Capa) */}
+    <>
+      <div
+        className="group relative flex flex-col overflow-hidden rounded-2xl border border-paper-3 bg-paper transition hover:shadow-md"
+        style={{ animationDelay: `${delay}s` }}
+      >
+        <Link to="/catalogo/$productSlug" params={{ productSlug: product.slug }} className="block overflow-hidden">
+          <div className="relative aspect-square w-full overflow-hidden bg-paper-2">
             <img
-              src={product.images[0].src}
-              alt={product.images[0].alt || product.name}
-              loading={priority ? 'eager' : 'lazy'}
-              className={`h-full w-full object-cover transition-all duration-500 ease-out ${
-                hasHoverImage
-                  ? 'group-hover:scale-105 group-hover:opacity-0'
-                  : 'group-hover:scale-105'
+              src={firstImage}
+              alt={product.name}
+              className={`h-full w-full object-cover transition-all duration-500 group-hover:scale-105 ${
+                secondImage ? 'group-hover:opacity-0' : ''
               }`}
             />
-
-            {/* Foto 2 (Revelada no Hover) */}
-            {hasHoverImage && (
+            {secondImage && (
               <img
-                src={product.images[1].src}
-                alt={`${product.name} perspetiva secundária`}
-                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-all duration-500 ease-out group-hover:scale-105 group-hover:opacity-100"
+                src={secondImage}
+                alt={`${product.name} alternate`}
+                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-all duration-500 group-hover:scale-105 group-hover:opacity-100"
               />
             )}
-          </>
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs font-mono text-ink-3">
-            Sem imagem
           </div>
-        )}
+        </Link>
 
-        {/* Tag da Categoria */}
-        {product.category && (
-          <span className="label-mono absolute left-3 top-3 z-10 rounded-full bg-paper/90 px-2.5 py-1 text-[11px] text-ink-2 shadow-sm backdrop-blur-sm">
-            {product.category.name}
-          </span>
-        )}
-      </div>
+        {/* Botão de Favorito no topo direito */}
+        <button
+          type="button"
+          onClick={handleHeartClick}
+          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-paper/80 backdrop-blur-md transition hover:scale-110 active:scale-95 shadow-sm"
+          title={isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+        >
+          <Heart
+            className={`h-5 w-5 transition ${
+              isFav ? 'fill-ember text-ember' : 'text-ink-2 hover:text-ember'
+            }`}
+          />
+        </button>
 
-      {/* Info da Peça */}
-      <div className="flex flex-1 flex-col p-4">
-        <h3 className="text-base font-bold text-ink group-hover:text-ember transition-colors line-clamp-1">
-          {product.name}
-        </h3>
+        {/* Detalhes do produto */}
+        <div className="flex flex-1 flex-col p-4">
+          <Link to="/catalogo/$productSlug" params={{ productSlug: product.slug }}>
+            <h3 className="text-sm font-bold text-ink transition hover:text-ember line-clamp-1">
+              {product.name}
+            </h3>
+          </Link>
 
-        {product.shortDescription && (
-          <p className="mt-1 text-xs text-ink-3 line-clamp-2 leading-relaxed">
-            {product.shortDescription}
-          </p>
-        )}
+          {product.shortDescription && (
+            <p className="mt-1 text-xs text-ink-3 line-clamp-2">
+              {product.shortDescription}
+            </p>
+          )}
 
-        <div className="mt-auto pt-3 flex items-center justify-between border-t border-paper-2">
-          <span className="text-xs text-ink-3">A partir de</span>
-          <span className="text-sm font-extrabold font-mono text-ink">
-            {product.basePrice.toFixed(2)} €
-          </span>
+          <div className="mt-auto pt-3 flex items-center justify-between">
+            <span className="text-sm font-extrabold text-ink">
+              {(product.price || product.basePrice || 0).toFixed(2)} €
+            </span>
+
+            {product.colors && product.colors.length > 0 && (
+              <div className="flex items-center -space-x-1.5">
+                {product.colors.slice(0, 4).map((c: any, i: number) => (
+                  <span
+                    key={i}
+                    className="h-3 w-3 rounded-full border border-paper"
+                    style={{ backgroundColor: c.hex }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </Link>
+
+      <AuthModal
+        isOpen={showAuth}
+        onClose={() => setShowAuth(false)}
+        onSuccess={handleLoginSuccess}
+      />
+    </>
   )
 }

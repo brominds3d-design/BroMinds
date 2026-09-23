@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as FavoritosRouteImport } from './routes/favoritos'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ContactoIndexRouteImport } from './routes/contacto/index'
@@ -16,6 +17,11 @@ import { Route as CategoriasIndexRouteImport } from './routes/categorias/index'
 import { Route as CatalogoIndexRouteImport } from './routes/catalogo/index'
 import { Route as CatalogoProductSlugRouteImport } from './routes/catalogo/$productSlug'
 
+const FavoritosRoute = FavoritosRouteImport.update({
+  id: '/favoritos',
+  path: '/favoritos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -50,6 +56,7 @@ const CatalogoProductSlugRoute = CatalogoProductSlugRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/favoritos': typeof FavoritosRoute
   '/catalogo/$productSlug': typeof CatalogoProductSlugRoute
   '/catalogo/': typeof CatalogoIndexRoute
   '/categorias/': typeof CategoriasIndexRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/favoritos': typeof FavoritosRoute
   '/catalogo/$productSlug': typeof CatalogoProductSlugRoute
   '/catalogo': typeof CatalogoIndexRoute
   '/categorias': typeof CategoriasIndexRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/favoritos': typeof FavoritosRoute
   '/catalogo/$productSlug': typeof CatalogoProductSlugRoute
   '/catalogo/': typeof CatalogoIndexRoute
   '/categorias/': typeof CategoriasIndexRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/favoritos'
     | '/catalogo/$productSlug'
     | '/catalogo/'
     | '/categorias/'
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/favoritos'
     | '/catalogo/$productSlug'
     | '/catalogo'
     | '/categorias'
@@ -93,6 +104,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/favoritos'
     | '/catalogo/$productSlug'
     | '/catalogo/'
     | '/categorias/'
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  FavoritosRoute: typeof FavoritosRoute
   CatalogoProductSlugRoute: typeof CatalogoProductSlugRoute
   CatalogoIndexRoute: typeof CatalogoIndexRoute
   CategoriasIndexRoute: typeof CategoriasIndexRoute
@@ -110,6 +123,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/favoritos': {
+      id: '/favoritos'
+      path: '/favoritos'
+      fullPath: '/favoritos'
+      preLoaderRoute: typeof FavoritosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin': {
       id: '/admin'
       path: '/admin'
@@ -158,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  FavoritosRoute: FavoritosRoute,
   CatalogoProductSlugRoute: CatalogoProductSlugRoute,
   CatalogoIndexRoute: CatalogoIndexRoute,
   CategoriasIndexRoute: CategoriasIndexRoute,

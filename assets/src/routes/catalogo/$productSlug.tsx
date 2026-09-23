@@ -7,9 +7,12 @@ import {
   Minus,
   Plus,
   ShoppingBag,
+  Heart,
 } from 'lucide-react'
 import { getProductBySlug, getRelatedProducts } from '@/data/catalog'
 import { ProductCard } from '@/components/ProductCard'
+import { getCurrentUser, toggleFavorite, getFavoriteProductIds, CustomerUser } from '@/lib/auth'
+import { AuthModal } from '@/components/AuthModal'
 
 export const Route = createFileRoute('/catalogo/$productSlug')({
   loader: async ({ params }) => {
@@ -75,6 +78,20 @@ function ProductPage() {
   >(null)
   const [quantity, setQuantity] = useState(1)
 
+  // Gestão de favoritos na página de detalhe
+  const [isFav, setIsFav] = useState(false)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+
+  const checkFavStatus = async () => {
+    const user = getCurrentUser()
+    if (user && currentProduct?.id) {
+      const favs = await getFavoriteProductIds(user.handle)
+      setIsFav(favs.includes(String(currentProduct.id)))
+    } else {
+      setIsFav(false)
+    }
+  }
+
   useEffect(() => {
     const newVariants =
       currentProduct.variants && currentProduct.variants.length > 0
@@ -92,7 +109,36 @@ function ProductPage() {
     setSelectedImage(currentProduct.images?.[0]?.src ?? '')
     setSelectedContact(null)
     setQuantity(1)
+
+    checkFavStatus()
+
+    const onFavChange = () => checkFavStatus()
+    const onAuthChange = () => checkFavStatus()
+
+    window.addEventListener('favorites_changed', onFavChange)
+    window.addEventListener('auth_changed', onAuthChange)
+
+    return () => {
+      window.removeEventListener('favorites_changed', onFavChange)
+      window.removeEventListener('auth_changed', onAuthChange)
+    }
   }, [product])
+
+  const handleToggleFavorite = async () => {
+    const user = getCurrentUser()
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
+
+    const nextState = await toggleFavorite(user.handle, String(currentProduct.id))
+    setIsFav(nextState)
+  }
+
+  const handleLoginSuccess = async (user: CustomerUser) => {
+    const nextState = await toggleFavorite(user.handle, String(currentProduct.id))
+    setIsFav(nextState)
+  }
 
   const messageText = encodeURIComponent(
     `Olá BroMinds! Gostava de encomendar a peça "${currentProduct.name}" no tamanho ${
@@ -107,349 +153,379 @@ function ProductPage() {
   const totalPrice = selectedVariant.price * quantity
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
-      {/* =========================================================
-          CABEÇALHO
-      ========================================================== */}
-      <header className="border-b border-paper-3 bg-paper">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-[72px] items-center justify-between">
-            <Link
-              to="/catalogo"
-              className="flex items-center gap-2 text-sm font-semibold text-ink-2 transition hover:text-ink"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Voltar ao catálogo
-            </Link>
-
-            <div className="hidden items-center gap-2 text-sm text-ink-3 sm:flex">
-              <Link to="/catalogo" className="transition hover:text-ink">
-                Catálogo
+    <>
+      <div className="min-h-screen bg-paper text-ink">
+        {/* =========================================================
+            CABEÇALHO
+        ========================================================== */}
+        <header className="border-b border-paper-3 bg-paper">
+          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex min-h-[72px] items-center justify-between">
+              <Link
+                to="/catalogo"
+                className="flex items-center gap-2 text-sm font-semibold text-ink-2 transition hover:text-ink"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Voltar ao catálogo
               </Link>
-              <ChevronRight className="h-4 w-4" />
-              <span className="max-w-[220px] truncate text-ink">
-                {currentProduct.name}
-              </span>
-            </div>
-          </div>
-        </div>
-      </header>
 
-      {/* =========================================================
-          PRODUTO
-      ========================================================== */}
-      <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] lg:gap-12 xl:gap-16">
-          {/* =====================================================
-              GALERIA
-          ====================================================== */}
-          <div className="min-w-0">
-            <div className="relative overflow-hidden rounded-3xl border border-paper-3 bg-paper-2 shadow-sm">
-              <div className="aspect-square w-full">
-                {selectedImage ? (
-                  <img
-                    src={selectedImage}
-                    alt={currentProduct.name}
-                    className="h-full w-full object-cover transition-all duration-300"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-ink-3">
-                    Sem imagem disponível
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Miniaturas */}
-            {currentProduct.images && currentProduct.images.length > 1 && (
-              <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
-                {currentProduct.images.map((image: any, index: number) => {
-                  const isSelected = selectedImage === image.src
-
-                  return (
-                    <button
-                      key={`${image.src}-${index}`}
-                      type="button"
-                      onClick={() => setSelectedImage(image.src)}
-                      className={`aspect-square overflow-hidden rounded-xl border bg-paper-2 transition ${
-                        isSelected
-                          ? 'border-ember ring-2 ring-ember/20'
-                          : 'border-paper-3 hover:border-ink-3'
-                      }`}
-                    >
-                      <img
-                        src={image.src}
-                        alt={`${currentProduct.name} ${index + 1}`}
-                        className="h-full w-full object-cover"
-                      />
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* =====================================================
-              INFORMAÇÃO DO PRODUTO
-          ====================================================== */}
-          <div className="min-w-0">
-            <div className="lg:sticky lg:top-8">
-              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ember">
-                <ShoppingBag className="h-4 w-4" />
-                Impressão 3D
-              </div>
-
-              <h1 className="text-3xl font-extrabold leading-tight text-ink sm:text-4xl lg:text-5xl">
-                {currentProduct.name}
-              </h1>
-
-              {currentProduct.shortDescription && (
-                <p className="mt-4 text-base leading-7 text-ink-2 sm:text-lg">
-                  {currentProduct.shortDescription}
-                </p>
-              )}
-
-              <div className="mt-6 flex items-end gap-2">
-                <span className="text-3xl font-extrabold text-ink">
-                  {totalPrice.toFixed(2)} €
+              <div className="hidden items-center gap-2 text-sm text-ink-3 sm:flex">
+                <Link to="/catalogo" className="transition hover:text-ink">
+                  Catálogo
+                </Link>
+                <ChevronRight className="h-4 w-4" />
+                <span className="max-w-[220px] truncate text-ink">
+                  {currentProduct.name}
                 </span>
-
-                {quantity > 1 && (
-                  <span className="pb-1 text-sm text-ink-3">
-                    {selectedVariant.price.toFixed(2)} € / unidade
-                  </span>
-                )}
               </div>
+            </div>
+          </div>
+        </header>
 
-              <div className="my-7 h-px bg-paper-3" />
-
-              {/* Descrição */}
-              {currentProduct.description && (
-                <div className="mb-7">
-                  <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-ink">
-                    Sobre esta peça
-                  </h2>
-                  <p className="whitespace-pre-line text-sm leading-6 text-ink-2">
-                    {currentProduct.description}
-                  </p>
-                </div>
-              )}
-
-              {/* Variantes */}
-              {variants.length > 1 && (
-                <div className="mb-7">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h2 className="text-sm font-bold text-ink">
-                      Tamanho / Variante
-                    </h2>
-                    <span className="text-xs text-ink-3">
-                      {selectedVariant.name}
-                    </span>
-                  </div>
-
-                  <div className="grid gap-2">
-                    {variants.map((variant: any, index: number) => {
-                      const selected = selectedVariant.name === variant.name
-
-                      return (
-                        <button
-                          key={`${variant.name}-${index}`}
-                          type="button"
-                          onClick={() => setSelectedVariant(variant)}
-                          className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
-                            selected
-                              ? 'border-ember bg-ember/5'
-                              : 'border-paper-3 bg-paper hover:bg-paper-2'
-                          }`}
-                        >
-                          <div>
-                            <p className="text-sm font-semibold text-ink">
-                              {variant.name}
-                            </p>
-                            {variant.dimensions && (
-                              <p className="mt-1 text-xs text-ink-3">
-                                {variant.dimensions}
-                              </p>
-                            )}
-                          </div>
-                          <span className="text-sm font-bold text-ink">
-                            {variant.price.toFixed(2)} €
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Cores */}
-              {currentProduct.colors && currentProduct.colors.length > 0 && (
-                <div className="mb-7">
-                  <h2 className="mb-3 text-sm font-bold text-ink">Cor</h2>
-                  <div className="flex flex-wrap gap-2">
-                    {currentProduct.colors.map((color: any, index: number) => {
-                      const selected = selectedColor?.name === color.name
-
-                      return (
-                        <button
-                          key={`${color.name}-${index}`}
-                          type="button"
-                          onClick={() => setSelectedColor(color)}
-                          className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
-                            selected
-                              ? 'border-ember bg-ember text-paper'
-                              : 'border-paper-3 bg-paper text-ink hover:bg-paper-2'
-                          }`}
-                        >
-                          {color.name}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Quantidade */}
-              <div className="mb-7">
-                <h2 className="mb-3 text-sm font-bold text-ink">Quantidade</h2>
-                <div className="flex h-12 w-fit items-center overflow-hidden rounded-xl border border-paper-3 bg-paper">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setQuantity((value) => Math.max(1, value - 1))
-                    }
-                    className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
-                    aria-label="Diminuir quantidade"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </button>
-
-                  <span className="flex w-12 justify-center text-sm font-bold text-ink">
-                    {quantity}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => setQuantity((value) => value + 1)}
-                    className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
-                    aria-label="Aumentar quantidade"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
+        {/* =========================================================
+            PRODUTO
+        ========================================================== */}
+        <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] lg:gap-12 xl:gap-16">
+            {/* =====================================================
+                GALERIA DE IMAGENS
+            ====================================================== */}
+            <div className="min-w-0">
+              <div className="relative overflow-hidden rounded-3xl border border-paper-3 bg-paper-2 shadow-sm">
+                <div className="aspect-square w-full">
+                  {selectedImage ? (
+                    <img
+                      src={selectedImage}
+                      alt={currentProduct.name}
+                      className="h-full w-full object-cover transition-all duration-300"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm text-ink-3">
+                      Sem imagem disponível
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Contactos */}
-              <div className="mb-4">
-                <h2 className="mb-3 text-sm font-bold text-ink">Contactar</h2>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {whatsappContacts.map((contact) => {
-                    const selected = selectedContact?.phone === contact.phone
+              {/* Miniaturas de seleção rápida */}
+              {currentProduct.images && currentProduct.images.length > 1 && (
+                <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
+                  {currentProduct.images.map((image: any, index: number) => {
+                    const isSelected = selectedImage === image.src
 
                     return (
                       <button
-                        key={contact.phone}
+                        key={`${image.src}-${index}`}
                         type="button"
-                        onClick={() => setSelectedContact(contact)}
-                        className={`rounded-xl border p-3 text-left transition ${
-                          selected
-                            ? 'border-ember bg-ember/5 ring-2 ring-ember/10'
-                            : 'border-paper-3 bg-paper hover:bg-paper-2'
+                        onClick={() => setSelectedImage(image.src)}
+                        className={`aspect-square overflow-hidden rounded-xl border bg-paper-2 transition ${
+                          isSelected
+                            ? 'border-ember ring-2 ring-ember/20'
+                            : 'border-paper-3 hover:border-ink-3'
                         }`}
                       >
-                        <p className="text-sm font-semibold text-ink">
-                          {contact.name}
-                        </p>
-                        <p className="mt-1 text-xs text-ink-3">
-                          {contact.role}
-                        </p>
+                        <img
+                          src={image.src}
+                          alt={`${currentProduct.name} ${index + 1}`}
+                          className="h-full w-full object-cover"
+                        />
                       </button>
                     )
                   })}
                 </div>
-              </div>
+              )}
+            </div>
 
-              {/* Botão WhatsApp */}
-              {selectedContact ? (
-                <>
-                  <a
-                    href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
+            {/* =====================================================
+                INFORMAÇÃO DO PRODUTO
+            ====================================================== */}
+            <div className="min-w-0">
+              <div className="lg:sticky lg:top-8">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ember">
+                  <ShoppingBag className="h-4 w-4" />
+                  Impressão 3D
+                </div>
+
+                <h1 className="mt-2 text-3xl font-extrabold leading-tight text-ink sm:text-4xl lg:text-5xl">
+                  {currentProduct.name}
+                </h1>
+
+                {currentProduct.shortDescription && (
+                  <p className="mt-4 text-base leading-7 text-ink-2 sm:text-lg">
+                    {currentProduct.shortDescription}
+                  </p>
+                )}
+
+                <div className="mt-6 flex items-end gap-2">
+                  <span className="text-3xl font-extrabold text-ink">
+                    {totalPrice.toFixed(2)} €
+                  </span>
+
+                  {quantity > 1 && (
+                    <span className="pb-1 text-sm text-ink-3">
+                      {selectedVariant.price.toFixed(2)} € / unidade
+                    </span>
+                  )}
+                </div>
+
+                {/* BOTÃO DE DESTAQUE: FAVORITOS */}
+                <div className="mt-6">
+                  <button
+                    type="button"
+                    onClick={handleToggleFavorite}
+                    className={`flex w-full items-center justify-center gap-2.5 rounded-2xl border px-5 py-3.5 text-sm font-bold transition shadow-sm active:scale-[0.99] ${
+                      isFav
+                        ? 'border-ember/40 bg-ember/10 text-ember hover:bg-ember/15'
+                        : 'border-paper-3 bg-paper hover:bg-paper-2 text-ink hover:border-ember'
+                    }`}
                   >
-                    <MessageCircle className="h-5 w-5" />
-                    Pedir esta peça
-                  </a>
-                  <p className="mt-3 text-center text-xs leading-5 text-ink-3">
-                    A mensagem será enviada diretamente para o WhatsApp de{' '}
-                    {selectedContact.name}.
-                  </p>
-                </>
-              ) : (
-                <div className="mt-4 rounded-xl border border-dashed border-paper-3 bg-paper-2 px-6 py-4 text-center">
-                  <p className="text-sm font-semibold text-ink">
-                    Escolhe quem contactar
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-ink-3">
-                    Seleciona Tiago ou Inês antes de enviar o pedido.
-                  </p>
+                    <Heart
+                      className={`h-5 w-5 transition duration-200 ${
+                        isFav ? 'fill-ember text-ember scale-110' : 'text-ink-2'
+                      }`}
+                    />
+                    <span>
+                      {isFav ? 'Guardado nos teus Favoritos' : 'Guardar nos Favoritos'}
+                    </span>
+                  </button>
                 </div>
-              )}
 
-              {/* Dimensões */}
-              {selectedVariant.dimensions && (
-                <div className="mt-7 rounded-2xl border border-paper-3 bg-paper-2 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-ink-3">
-                    Dimensões
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-ink">
-                    {selectedVariant.dimensions}
-                  </p>
+                <div className="my-7 h-px bg-paper-3" />
+
+                {/* Descrição */}
+                {currentProduct.description && (
+                  <div className="mb-7">
+                    <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-ink">
+                      Sobre esta peça
+                    </h2>
+                    <p className="whitespace-pre-line text-sm leading-6 text-ink-2">
+                      {currentProduct.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Variantes */}
+                {variants.length > 1 && (
+                  <div className="mb-7">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h2 className="text-sm font-bold text-ink">
+                        Tamanho / Variante
+                      </h2>
+                      <span className="text-xs text-ink-3">
+                        {selectedVariant.name}
+                      </span>
+                    </div>
+
+                    <div className="grid gap-2">
+                      {variants.map((variant: any, index: number) => {
+                        const selected = selectedVariant.name === variant.name
+
+                        return (
+                          <button
+                            key={`${variant.name}-${index}`}
+                            type="button"
+                            onClick={() => setSelectedVariant(variant)}
+                            className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+                              selected
+                                ? 'border-ember bg-ember/5'
+                                : 'border-paper-3 bg-paper hover:bg-paper-2'
+                            }`}
+                          >
+                            <div>
+                              <p className="text-sm font-semibold text-ink">
+                                {variant.name}
+                              </p>
+                              {variant.dimensions && (
+                                <p className="mt-1 text-xs text-ink-3">
+                                  {variant.dimensions}
+                                </p>
+                              )}
+                            </div>
+                            <span className="text-sm font-bold text-ink">
+                              {variant.price.toFixed(2)} €
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Cores */}
+                {currentProduct.colors && currentProduct.colors.length > 0 && (
+                  <div className="mb-7">
+                    <h2 className="mb-3 text-sm font-bold text-ink">Cor</h2>
+                    <div className="flex flex-wrap gap-2">
+                      {currentProduct.colors.map((color: any, index: number) => {
+                        const selected = selectedColor?.name === color.name
+
+                        return (
+                          <button
+                            key={`${color.name}-${index}`}
+                            type="button"
+                            onClick={() => setSelectedColor(color)}
+                            className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                              selected
+                                ? 'border-ember bg-ember text-paper'
+                                : 'border-paper-3 bg-paper text-ink hover:bg-paper-2'
+                            }`}
+                          >
+                            {color.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quantidade */}
+                <div className="mb-7">
+                  <h2 className="mb-3 text-sm font-bold text-ink">Quantidade</h2>
+                  <div className="flex h-12 w-fit items-center overflow-hidden rounded-xl border border-paper-3 bg-paper">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQuantity((value) => Math.max(1, value - 1))
+                      }
+                      className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
+                      aria-label="Diminuir quantidade"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+
+                    <span className="flex w-12 justify-center text-sm font-bold text-ink">
+                      {quantity}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setQuantity((value) => value + 1)}
+                      className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
+                      aria-label="Aumentar quantidade"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </main>
 
-      {/* =========================================================
-          TAMBÉM PODES GOSTAR
-      ========================================================== */}
-      {relatedProducts && relatedProducts.length > 0 && (
-        <section className="border-t border-paper-3 bg-paper-2">
-          <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
-            <div className="mb-7 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-ember">
-                  Descobre mais
-                </p>
-                <h2 className="mt-1 text-2xl font-extrabold text-ink sm:text-3xl">
-                  Também podes gostar
-                </h2>
+                {/* Contactos */}
+                <div className="mb-4">
+                  <h2 className="mb-3 text-sm font-bold text-ink">Contactar</h2>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {whatsappContacts.map((contact) => {
+                      const selected = selectedContact?.phone === contact.phone
+
+                      return (
+                        <button
+                          key={contact.phone}
+                          type="button"
+                          onClick={() => setSelectedContact(contact)}
+                          className={`rounded-xl border p-3 text-left transition ${
+                            selected
+                              ? 'border-ember bg-ember/5 ring-2 ring-ember/10'
+                              : 'border-paper-3 bg-paper hover:bg-paper-2'
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-ink">
+                            {contact.name}
+                          </p>
+                          <p className="mt-1 text-xs text-ink-3">
+                            {contact.role}
+                          </p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Botão WhatsApp */}
+                {selectedContact ? (
+                  <>
+                    <a
+                      href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                      Pedir esta peça
+                    </a>
+                    <p className="mt-3 text-center text-xs leading-5 text-ink-3">
+                      A mensagem será enviada diretamente para o WhatsApp de{' '}
+                      {selectedContact.name}.
+                    </p>
+                  </>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-dashed border-paper-3 bg-paper-2 px-6 py-4 text-center">
+                    <p className="text-sm font-semibold text-ink">
+                      Escolhe quem contactar
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink-3">
+                      Seleciona Tiago ou Inês antes de enviar o pedido.
+                    </p>
+                  </div>
+                )}
+
+                {/* Dimensões */}
+                {selectedVariant.dimensions && (
+                  <div className="mt-7 rounded-2xl border border-paper-3 bg-paper-2 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-ink-3">
+                      Dimensões
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-ink">
+                      {selectedVariant.dimensions}
+                    </p>
+                  </div>
+                )}
               </div>
-              <Link
-                to="/catalogo"
-                className="hidden text-sm font-semibold text-ink-2 transition hover:text-ink sm:block"
-              >
-                Ver catálogo
-              </Link>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {relatedProducts.slice(0, 4).map(
-                (relatedProduct: any, index: number) => (
-                  <ProductCard
-                    key={relatedProduct.id}
-                    product={relatedProduct}
-                    delay={0.03 * index}
-                  />
-                ),
-              )}
             </div>
           </div>
-        </section>
-      )}
-    </div>
+        </main>
+
+        {/* =========================================================
+            TAMBÉM PODES GOSTAR
+        ========================================================== */}
+        {relatedProducts && relatedProducts.length > 0 && (
+          <section className="border-t border-paper-3 bg-paper-2">
+            <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+              <div className="mb-7 flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-ember">
+                    Descobre mais
+                  </p>
+                  <h2 className="mt-1 text-2xl font-extrabold text-ink sm:text-3xl">
+                    Também podes gostar
+                  </h2>
+                </div>
+                <Link
+                  to="/catalogo"
+                  className="hidden text-sm font-semibold text-ink-2 transition hover:text-ink sm:block"
+                >
+                  Ver catálogo
+                </Link>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {relatedProducts.slice(0, 4).map(
+                  (relatedProduct: any, index: number) => (
+                    <ProductCard
+                      key={relatedProduct.id}
+                      product={relatedProduct}
+                      delay={0.03 * index}
+                    />
+                  ),
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+      </div>
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={handleLoginSuccess}
+      />
+    </>
   )
 }
