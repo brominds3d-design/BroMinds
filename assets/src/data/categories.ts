@@ -54,6 +54,17 @@ export const categories: Array<Category> = [
     featured: true,
   },
   {
+    id: 'porta-chaves',
+    slug: 'porta-chaves',
+    name: 'Porta-chaves',
+    tagline: 'Leva contigo os teus designs favoritos',
+    description:
+      'Porta-chaves temáticos, figuras colecionáveis em miniatura e acessórios práticos e resistentes impressos em 3D.',
+    image: '/img/placeholder.png',
+    order: 5,
+    featured: true,
+  },
+  {
     id: 'presentes',
     slug: 'presentes',
     name: 'Presentes',
@@ -61,7 +72,7 @@ export const categories: Array<Category> = [
     description:
       'Uma selecção de peças que funcionam bem como prenda, com embalagem simples incluída.',
     image: '/img/gato-preto-1.png',
-    order: 5,
+    order: 6,
     featured: false,
   },
   {
@@ -72,7 +83,7 @@ export const categories: Array<Category> = [
     description:
       'Placas, etiquetas e peças adaptadas ao que precisas. Dizes-nos o texto, as cores e o tamanho, e nós imprimimos.',
     image: '/img/placa-nome-1.png',
-    order: 6,
+    order: 7,
     featured: false,
   },
 ]

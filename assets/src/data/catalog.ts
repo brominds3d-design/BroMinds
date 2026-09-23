@@ -16,6 +16,7 @@ export interface ProductWithCategory extends Omit<Product, 'price'> {
   basePrice: number
   variants?: Array<ProductVariant>
   category: Category | undefined
+  model3d?: string
 }
 
 const byOrder = (a: Category, b: Category) => a.order - b.order
@@ -23,6 +24,13 @@ const byOrder = (a: Category, b: Category) => a.order - b.order
 function mapSupabaseProduct(row: any): ProductWithCategory {
   const variants: Array<ProductVariant> = Array.isArray(row.variants) ? row.variants : []
   const basePrice = Number(row.base_price ?? (variants[0]?.price || 0))
+
+  // Deteta se o produto tem modelo 3D no Supabase ou se é o Monopoly pelo slug/nome
+  const isMonopoly =
+    row.slug?.includes('monopoly') ||
+    row.name?.toLowerCase().includes('monopoly')
+
+  const model3d = row.model_3d || row.model3d || (isMonopoly ? '/Untitled.glb' : undefined)
 
   return {
     id: String(row.id),
@@ -42,6 +50,7 @@ function mapSupabaseProduct(row: any): ProductWithCategory {
     featured: Boolean(row.featured),
     createdAt: row.created_at || new Date().toISOString(),
     category: categories.find((c) => c.id === row.category_id),
+    model3d,
   }
 }
 
@@ -114,18 +123,30 @@ export async function getCategoryCounts(): Promise<Record<string, number>> {
 }
 
 export async function getRelatedProducts(
-  product: { id: string; categoryId: string },
+  categoryIdOrProduct: string | { id: string; categoryId: string },
+  productId?: string,
   limit = 4,
 ): Promise<Array<ProductWithCategory>> {
   const products = await getProducts()
+
+  const targetCategoryId =
+    typeof categoryIdOrProduct === 'object'
+      ? categoryIdOrProduct.categoryId
+      : categoryIdOrProduct
+
+  const targetId =
+    typeof categoryIdOrProduct === 'object'
+      ? categoryIdOrProduct.id
+      : productId
+
   const sameCategory = products.filter(
-    (p) => p.categoryId === product.categoryId && p.id !== product.id,
+    (p) => p.categoryId === targetCategoryId && p.id !== targetId,
   )
 
   if (sameCategory.length >= limit) return sameCategory.slice(0, limit)
 
   const fillers = products.filter(
-    (p) => p.categoryId !== product.categoryId && p.id !== product.id,
+    (p) => p.categoryId !== targetCategoryId && p.id !== targetId,
   )
 
   return [...sameCategory, ...fillers].slice(0, limit)

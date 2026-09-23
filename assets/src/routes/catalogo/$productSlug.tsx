@@ -7,9 +7,12 @@ import {
   Minus,
   Plus,
   ShoppingBag,
+  Box,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { getProductBySlug, getRelatedProducts } from '@/data/catalog'
 import { ProductCard } from '@/components/ProductCard'
+import { ModelViewer } from '@/components/ModelViewer'
 
 export const Route = createFileRoute('/catalogo/$productSlug')({
   loader: async ({ params }) => {
@@ -19,9 +22,12 @@ export const Route = createFileRoute('/catalogo/$productSlug')({
       throw new Error('Produto não encontrado')
     }
 
-    const relatedProducts = await getRelatedProducts(
-      product.categoryId ?? product.category_id,
-      product.id,
+    const prod = product as any
+    const categoryId = prod.categoryId ?? prod.category_id
+
+    const relatedProducts = await (getRelatedProducts as any)(
+      categoryId,
+      prod.id,
     )
 
     return {
@@ -34,14 +40,15 @@ export const Route = createFileRoute('/catalogo/$productSlug')({
 
 function ProductPage() {
   const { product, relatedProducts } = Route.useLoaderData()
+  const currentProduct = product as any
 
   const variants =
-    product.variants && product.variants.length > 0
-      ? product.variants
+    currentProduct.variants && currentProduct.variants.length > 0
+      ? currentProduct.variants
       : [
           {
             name: 'Tamanho Único',
-            price: product.price,
+            price: currentProduct.price,
             dimensions: '',
           },
         ]
@@ -60,52 +67,48 @@ function ProductPage() {
   ]
 
   const [selectedVariant, setSelectedVariant] = useState(variants[0])
-
   const [selectedColor, setSelectedColor] = useState(
-    product.colors?.[0] ?? null,
+    currentProduct.colors?.[0] ?? null,
   )
-
   const [selectedImage, setSelectedImage] = useState(
-    product.images?.[0]?.src ?? '',
+    currentProduct.images?.[0]?.src ?? '',
   )
-
-  // Nenhum contacto fica selecionado por defeito
   const [selectedContact, setSelectedContact] = useState<
     (typeof whatsappContacts)[number] | null
   >(null)
-
   const [quantity, setQuantity] = useState(1)
 
-  /*
-   * Quando se muda para outro produto através de
-   * "Também podes gostar", atualiza tudo.
-   */
+  // Alternador entre modo Foto e 3D
+  const [viewMode, setViewMode] = useState<'image' | '3d'>('image')
+
+  // Caminho do ficheiro .glb existente em public/
+  const model3dUrl = currentProduct.model3d || '/Untitled.glb'
+
   useEffect(() => {
     const newVariants =
-      product.variants && product.variants.length > 0
-        ? product.variants
+      currentProduct.variants && currentProduct.variants.length > 0
+        ? currentProduct.variants
         : [
             {
               name: 'Tamanho Único',
-              price: product.price,
+              price: currentProduct.price,
               dimensions: '',
             },
           ]
 
     setSelectedVariant(newVariants[0])
-    setSelectedColor(product.colors?.[0] ?? null)
-    setSelectedImage(product.images?.[0]?.src ?? '')
+    setSelectedColor(currentProduct.colors?.[0] ?? null)
+    setSelectedImage(currentProduct.images?.[0]?.src ?? '')
     setSelectedContact(null)
     setQuantity(1)
+    setViewMode('image')
   }, [product])
 
   const messageText = encodeURIComponent(
-    `Olá BroMinds! Gostava de encomendar a peça "${product.name}" no tamanho ${
+    `Olá BroMinds! Gostava de encomendar a peça "${currentProduct.name}" no tamanho ${
       selectedVariant.name
     }${
-      selectedColor
-        ? ` e na cor ${selectedColor.name}`
-        : ''
+      selectedColor ? ` e na cor ${selectedColor.name}` : ''
     }. Quantidade: ${quantity}. (Preço: ${(
       selectedVariant.price * quantity
     ).toFixed(2)} €)`,
@@ -130,17 +133,12 @@ function ProductPage() {
             </Link>
 
             <div className="hidden items-center gap-2 text-sm text-ink-3 sm:flex">
-              <Link
-                to="/catalogo"
-                className="transition hover:text-ink"
-              >
+              <Link to="/catalogo" className="transition hover:text-ink">
                 Catálogo
               </Link>
-
               <ChevronRight className="h-4 w-4" />
-
               <span className="max-w-[220px] truncate text-ink">
-                {product.name}
+                {currentProduct.name}
               </span>
             </div>
           </div>
@@ -153,15 +151,48 @@ function ProductPage() {
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] lg:gap-12 xl:gap-16">
           {/* =====================================================
-              GALERIA
+              GALERIA COM SUPORTE 3D
           ====================================================== */}
           <div className="min-w-0">
-            <div className="overflow-hidden rounded-3xl border border-paper-3 bg-paper-2 shadow-sm">
+            <div className="relative overflow-hidden rounded-3xl border border-paper-3 bg-paper-2 shadow-sm">
+              {/* Botões alternadores no canto superior direito */}
+              <div className="absolute right-4 top-4 z-10 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('image')}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition ${
+                    viewMode === 'image'
+                      ? 'bg-paper text-ink shadow-sm'
+                      : 'bg-paper/60 text-ink-2 hover:bg-paper/80'
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  Foto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('3d')}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition ${
+                    viewMode === '3d'
+                      ? 'bg-ember text-paper shadow-sm'
+                      : 'bg-paper/60 text-ink-2 hover:bg-paper/80'
+                  }`}
+                >
+                  <Box className="h-3.5 w-3.5" />
+                  Ver em 3D
+                </button>
+              </div>
+
+              {/* Área principal (Foto ou 3D) */}
               <div className="aspect-square w-full">
-                {selectedImage ? (
+                {viewMode === '3d' ? (
+                  <div className="h-full w-full">
+                    <ModelViewer model={model3dUrl} />
+                  </div>
+                ) : selectedImage ? (
                   <img
                     src={selectedImage}
-                    alt={product.name}
+                    alt={currentProduct.name}
                     className="h-full w-full object-cover transition-all duration-300"
                   />
                 ) : (
@@ -172,17 +203,34 @@ function ProductPage() {
               </div>
             </div>
 
-            {/* Miniaturas */}
-            {product.images && product.images.length > 1 && (
-              <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
-                {product.images.map((image: any, index: number) => {
-                  const isSelected = selectedImage === image.src
+            {/* Miniaturas de seleção rápida */}
+            <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
+              <button
+                type="button"
+                onClick={() => setViewMode('3d')}
+                className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border bg-paper-2 p-2 text-xs font-medium transition ${
+                  viewMode === '3d'
+                    ? 'border-ember text-ember ring-2 ring-ember/20'
+                    : 'border-paper-3 text-ink-2 hover:border-ink-3'
+                }`}
+              >
+                <Box className="h-6 w-6" />
+                <span>3D</span>
+              </button>
+
+              {currentProduct.images &&
+                currentProduct.images.map((image: any, index: number) => {
+                  const isSelected =
+                    viewMode === 'image' && selectedImage === image.src
 
                   return (
                     <button
                       key={`${image.src}-${index}`}
                       type="button"
-                      onClick={() => setSelectedImage(image.src)}
+                      onClick={() => {
+                        setSelectedImage(image.src)
+                        setViewMode('image')
+                      }}
                       className={`aspect-square overflow-hidden rounded-xl border bg-paper-2 transition ${
                         isSelected
                           ? 'border-ember ring-2 ring-ember/20'
@@ -191,14 +239,13 @@ function ProductPage() {
                     >
                       <img
                         src={image.src}
-                        alt={`${product.name} ${index + 1}`}
+                        alt={`${currentProduct.name} ${index + 1}`}
                         className="h-full w-full object-cover"
                       />
                     </button>
                   )
                 })}
-              </div>
-            )}
+            </div>
           </div>
 
           {/* =====================================================
@@ -212,12 +259,12 @@ function ProductPage() {
               </div>
 
               <h1 className="text-3xl font-extrabold leading-tight text-ink sm:text-4xl lg:text-5xl">
-                {product.name}
+                {currentProduct.name}
               </h1>
 
-              {product.shortDescription && (
+              {currentProduct.shortDescription && (
                 <p className="mt-4 text-base leading-7 text-ink-2 sm:text-lg">
-                  {product.shortDescription}
+                  {currentProduct.shortDescription}
                 </p>
               )}
 
@@ -236,28 +283,24 @@ function ProductPage() {
               <div className="my-7 h-px bg-paper-3" />
 
               {/* Descrição */}
-              {product.description && (
+              {currentProduct.description && (
                 <div className="mb-7">
                   <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-ink">
                     Sobre esta peça
                   </h2>
-
                   <p className="whitespace-pre-line text-sm leading-6 text-ink-2">
-                    {product.description}
+                    {currentProduct.description}
                   </p>
                 </div>
               )}
 
-              {/* =================================================
-                  VARIANTES
-              ================================================== */}
+              {/* Variantes */}
               {variants.length > 1 && (
                 <div className="mb-7">
                   <div className="mb-3 flex items-center justify-between">
                     <h2 className="text-sm font-bold text-ink">
                       Tamanho / Variante
                     </h2>
-
                     <span className="text-xs text-ink-3">
                       {selectedVariant.name}
                     </span>
@@ -265,8 +308,7 @@ function ProductPage() {
 
                   <div className="grid gap-2">
                     {variants.map((variant: any, index: number) => {
-                      const selected =
-                        selectedVariant.name === variant.name
+                      const selected = selectedVariant.name === variant.name
 
                       return (
                         <button
@@ -283,14 +325,12 @@ function ProductPage() {
                             <p className="text-sm font-semibold text-ink">
                               {variant.name}
                             </p>
-
                             {variant.dimensions && (
                               <p className="mt-1 text-xs text-ink-3">
                                 {variant.dimensions}
                               </p>
                             )}
                           </div>
-
                           <span className="text-sm font-bold text-ink">
                             {variant.price.toFixed(2)} €
                           </span>
@@ -301,19 +341,13 @@ function ProductPage() {
                 </div>
               )}
 
-              {/* =================================================
-                  CORES
-              ================================================== */}
-              {product.colors && product.colors.length > 0 && (
+              {/* Cores */}
+              {currentProduct.colors && currentProduct.colors.length > 0 && (
                 <div className="mb-7">
-                  <h2 className="mb-3 text-sm font-bold text-ink">
-                    Cor
-                  </h2>
-
+                  <h2 className="mb-3 text-sm font-bold text-ink">Cor</h2>
                   <div className="flex flex-wrap gap-2">
-                    {product.colors.map((color: any, index: number) => {
-                      const selected =
-                        selectedColor?.name === color.name
+                    {currentProduct.colors.map((color: any, index: number) => {
+                      const selected = selectedColor?.name === color.name
 
                       return (
                         <button
@@ -334,14 +368,9 @@ function ProductPage() {
                 </div>
               )}
 
-              {/* =================================================
-                  QUANTIDADE
-              ================================================== */}
+              {/* Quantidade */}
               <div className="mb-7">
-                <h2 className="mb-3 text-sm font-bold text-ink">
-                  Quantidade
-                </h2>
-
+                <h2 className="mb-3 text-sm font-bold text-ink">Quantidade</h2>
                 <div className="flex h-12 w-fit items-center overflow-hidden rounded-xl border border-paper-3 bg-paper">
                   <button
                     type="button"
@@ -360,9 +389,7 @@ function ProductPage() {
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setQuantity((value) => value + 1)
-                    }
+                    onClick={() => setQuantity((value) => value + 1)}
                     className="flex h-full w-12 items-center justify-center text-ink-2 transition hover:bg-paper-2"
                     aria-label="Aumentar quantidade"
                   >
@@ -371,18 +398,12 @@ function ProductPage() {
                 </div>
               </div>
 
-              {/* =================================================
-                  CONTACTO
-              ================================================== */}
+              {/* Contactos */}
               <div className="mb-4">
-                <h2 className="mb-3 text-sm font-bold text-ink">
-                  Contactar
-                </h2>
-
+                <h2 className="mb-3 text-sm font-bold text-ink">Contactar</h2>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {whatsappContacts.map((contact) => {
-                    const selected =
-                      selectedContact?.phone === contact.phone
+                    const selected = selectedContact?.phone === contact.phone
 
                     return (
                       <button
@@ -398,7 +419,6 @@ function ProductPage() {
                         <p className="text-sm font-semibold text-ink">
                           {contact.name}
                         </p>
-
                         <p className="mt-1 text-xs text-ink-3">
                           {contact.role}
                         </p>
@@ -408,9 +428,7 @@ function ProductPage() {
                 </div>
               </div>
 
-              {/* =================================================
-                  BOTÃO WHATSAPP
-              ================================================== */}
+              {/* Botão WhatsApp */}
               {selectedContact ? (
                 <>
                   <a
@@ -422,10 +440,9 @@ function ProductPage() {
                     <MessageCircle className="h-5 w-5" />
                     Pedir esta peça
                   </a>
-
                   <p className="mt-3 text-center text-xs leading-5 text-ink-3">
-                    A mensagem será enviada diretamente para o
-                    WhatsApp de {selectedContact.name}.
+                    A mensagem será enviada diretamente para o WhatsApp de{' '}
+                    {selectedContact.name}.
                   </p>
                 </>
               ) : (
@@ -433,22 +450,18 @@ function ProductPage() {
                   <p className="text-sm font-semibold text-ink">
                     Escolhe quem contactar
                   </p>
-
                   <p className="mt-1 text-xs leading-5 text-ink-3">
                     Seleciona Tiago ou Inês antes de enviar o pedido.
                   </p>
                 </div>
               )}
 
-              {/* =================================================
-                  DIMENSÕES
-              ================================================== */}
+              {/* Dimensões */}
               {selectedVariant.dimensions && (
                 <div className="mt-7 rounded-2xl border border-paper-3 bg-paper-2 p-4">
                   <p className="text-xs font-bold uppercase tracking-wide text-ink-3">
                     Dimensões
                   </p>
-
                   <p className="mt-1 text-sm font-semibold text-ink">
                     {selectedVariant.dimensions}
                   </p>
@@ -470,12 +483,10 @@ function ProductPage() {
                 <p className="text-xs font-bold uppercase tracking-wider text-ember">
                   Descobre mais
                 </p>
-
                 <h2 className="mt-1 text-2xl font-extrabold text-ink sm:text-3xl">
                   Também podes gostar
                 </h2>
               </div>
-
               <Link
                 to="/catalogo"
                 className="hidden text-sm font-semibold text-ink-2 transition hover:text-ink sm:block"
