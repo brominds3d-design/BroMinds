@@ -7,12 +7,9 @@ import {
   Minus,
   Plus,
   ShoppingBag,
-  Box,
-  Image as ImageIcon,
 } from 'lucide-react'
 import { getProductBySlug, getRelatedProducts } from '@/data/catalog'
 import { ProductCard } from '@/components/ProductCard'
-import { ModelViewer } from '@/components/ModelViewer'
 
 export const Route = createFileRoute('/catalogo/$productSlug')({
   loader: async ({ params }) => {
@@ -78,12 +75,6 @@ function ProductPage() {
   >(null)
   const [quantity, setQuantity] = useState(1)
 
-  // Alternador entre modo Foto e 3D
-  const [viewMode, setViewMode] = useState<'image' | '3d'>('image')
-
-  // Caminho do ficheiro .glb existente em public/
-  const model3dUrl = currentProduct.model3d || '/Untitled.glb'
-
   useEffect(() => {
     const newVariants =
       currentProduct.variants && currentProduct.variants.length > 0
@@ -101,7 +92,6 @@ function ProductPage() {
     setSelectedImage(currentProduct.images?.[0]?.src ?? '')
     setSelectedContact(null)
     setQuantity(1)
-    setViewMode('image')
   }, [product])
 
   const messageText = encodeURIComponent(
@@ -151,45 +141,12 @@ function ProductPage() {
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-14">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] lg:gap-12 xl:gap-16">
           {/* =====================================================
-              GALERIA COM SUPORTE 3D
+              GALERIA
           ====================================================== */}
           <div className="min-w-0">
             <div className="relative overflow-hidden rounded-3xl border border-paper-3 bg-paper-2 shadow-sm">
-              {/* Botões alternadores no canto superior direito */}
-              <div className="absolute right-4 top-4 z-10 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('image')}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition ${
-                    viewMode === 'image'
-                      ? 'bg-paper text-ink shadow-sm'
-                      : 'bg-paper/60 text-ink-2 hover:bg-paper/80'
-                  }`}
-                >
-                  <ImageIcon className="h-3.5 w-3.5" />
-                  Foto
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('3d')}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold backdrop-blur-md transition ${
-                    viewMode === '3d'
-                      ? 'bg-ember text-paper shadow-sm'
-                      : 'bg-paper/60 text-ink-2 hover:bg-paper/80'
-                  }`}
-                >
-                  <Box className="h-3.5 w-3.5" />
-                  Ver em 3D
-                </button>
-              </div>
-
-              {/* Área principal (Foto ou 3D) */}
               <div className="aspect-square w-full">
-                {viewMode === '3d' ? (
-                  <div className="h-full w-full">
-                    <ModelViewer model={model3dUrl} />
-                  </div>
-                ) : selectedImage ? (
+                {selectedImage ? (
                   <img
                     src={selectedImage}
                     alt={currentProduct.name}
@@ -203,34 +160,17 @@ function ProductPage() {
               </div>
             </div>
 
-            {/* Miniaturas de seleção rápida */}
-            <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
-              <button
-                type="button"
-                onClick={() => setViewMode('3d')}
-                className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border bg-paper-2 p-2 text-xs font-medium transition ${
-                  viewMode === '3d'
-                    ? 'border-ember text-ember ring-2 ring-ember/20'
-                    : 'border-paper-3 text-ink-2 hover:border-ink-3'
-                }`}
-              >
-                <Box className="h-6 w-6" />
-                <span>3D</span>
-              </button>
-
-              {currentProduct.images &&
-                currentProduct.images.map((image: any, index: number) => {
-                  const isSelected =
-                    viewMode === 'image' && selectedImage === image.src
+            {/* Miniaturas */}
+            {currentProduct.images && currentProduct.images.length > 1 && (
+              <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-5">
+                {currentProduct.images.map((image: any, index: number) => {
+                  const isSelected = selectedImage === image.src
 
                   return (
                     <button
                       key={`${image.src}-${index}`}
                       type="button"
-                      onClick={() => {
-                        setSelectedImage(image.src)
-                        setViewMode('image')
-                      }}
+                      onClick={() => setSelectedImage(image.src)}
                       className={`aspect-square overflow-hidden rounded-xl border bg-paper-2 transition ${
                         isSelected
                           ? 'border-ember ring-2 ring-ember/20'
@@ -245,7 +185,8 @@ function ProductPage() {
                     </button>
                   )
                 })}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* =====================================================
