@@ -33,6 +33,20 @@ const money = (value: number) =>
     currency: 'EUR',
   }).format(value)
 
+function extractSizeLetter(text: string): string {
+  const match = text.match(/\b([SML])\b/i) || text.match(/^([SML])/i)
+  return match ? match[1].toUpperCase() : text
+}
+
+function cleanDimensions(text: string | null | undefined): string {
+  if (!text) return ''
+  return text
+    .replace(/x/g, ' × ')
+    .replace(/\s*×\s*/g, ' × ')
+    .replace(/\(\s*/g, '(')     .replace(/\s*\)/g, ')')
+    .trim()
+}
+
 const LED_INCLUDED_SLUGS = [
   'casa-natal',
   'casa-natal-s',
@@ -77,26 +91,34 @@ function PacksNatalPage() {
   const base = products.find((product) => product.pack_type === 'base')
   const plaque = products.find((product) => product.pack_type === 'placa')
 
-  // Casas de Natal (exclui igreja)
-  const houseProducts = products.filter(
-    (product) =>
+  // Identificação robusta das Casas (exclui Igreja)
+  const isHouseProduct = (product: PackProduct) => {
+    const s = product.slug.toLowerCase()
+    const n = product.name.toLowerCase()
+    if (s.includes('igreja') || n.includes('igreja')) return false
+    return (
       product.pack_type === 'casa' ||
-      product.slug === 'casa-natal' ||
-      product.slug === 'casa-natal-s' ||
-      product.slug === 'casa-natal-m',
-  )
+      s.includes('casa') ||
+      n.includes('casa')
+    )
+  }
 
-  // Mais decorações (inclui a igreja e exclui base, placa e casas)
+  const houseProducts = products.filter(isHouseProduct)
+
+  // Decorações (Igreja e restantes peças, sem Base, Placas ou Casas)
   const decorationProducts = products.filter(
     (product) =>
       product.pack_type !== 'base' &&
       product.pack_type !== 'placa' &&
-      !houseProducts.some((h) => h.id === product.id),
+      !isHouseProduct(product),
   )
 
-  function priceFor(product: PackProduct | undefined, size: string): number {
+  function priceFor(product: PackProduct | undefined, sizeLabel: string): number {
     if (!product) return 0
-    const variant = product.variants?.find((item) => item.name === size)
+    const variant = product.variants?.find(
+      (item) =>
+        extractSizeLetter(item.name) === sizeLabel || item.name === sizeLabel,
+    )
     return Number(variant?.price ?? product.base_price)
   }
 
@@ -131,52 +153,53 @@ function PacksNatalPage() {
     0,
   )
 
-  // Casas de Natal
+  // Geração das Casas no Passo 3
   const houseItems = useMemo(() => {
     const items: Array<{
       key: string
       name: string
-      size: string
-      size_cm: string | null
+      sizeLetter: string
+      displayLabel: string
       price: number
       quantity: number
       image?: string
     }> = []
 
-    const singleHouse = houseProducts.find(
-      (p) => p.slug === 'casa-natal' && (p.variants?.length ?? 0) > 0,
-    )
+    const mainHouse = houseProducts[0]
 
-    if (singleHouse && singleHouse.variants) {
-      singleHouse.variants
-        .filter((v) => ['S', 'M'].includes(v.name.toUpperCase()))
-        .forEach((variant) => {
-          const key = `casa_${variant.name}`
-          const sizeName = variant.name.toUpperCase()
+    if (mainHouse) {
+      if (mainHouse.variants && mainHouse.variants.length > 0) {
+        mainHouse.variants.forEach((variant) => {
+          const letter = extractSizeLetter(variant.name)
+          const key = `casa_${letter}`
+          const label = cleanDimensions(variant.name)
           items.push({
             key,
-            name: `Casa de Natal (${sizeName})`,
-            size: sizeName,
-            size_cm: variant.size || singleHouse.pack_size,
+            name: `Casa de Natal ${label}`,
+            sizeLetter: letter,
+            displayLabel: label,
             price: Number(variant.price),
             quantity: houses[key] ?? 0,
-            image: singleHouse.images?.[0]?.src,
+            image: mainHouse.images?.[0]?.src,
           })
         })
-    } else {
-      houseProducts.forEach((prod) => {
-        const isS = prod.slug.includes('-s') || prod.name.toUpperCase().includes('S')
-        const sizeName = isS ? 'S' : 'M'
-        items.push({
-          key: prod.id,
-          name: `Casa de Natal (${sizeName})`,
-          size: sizeName,
-          size_cm: prod.pack_size,
-          price: Number(prod.base_price),
-          quantity: houses[prod.id] ?? 0,
-          image: prod.images?.[0]?.src,
+      } else {
+        houseProducts.forEach((prod) => {
+          const letter = prod.slug.includes('-s') ? 'S' : 'M'
+          const label = prod.pack_size
+            ? `${letter} (${cleanDimensions(prod.pack_size)})`
+            : letter
+          items.push({
+            key: prod.id,
+            name: `Casa de Natal ${label}`,
+            sizeLetter: letter,
+            displayLabel: label,
+            price: Number(prod.base_price),
+            quantity: houses[prod.id] ?? 0,
+            image: prod.images?.[0]?.src,
+          })
         })
-      })
+      }
     }
 
     return items
@@ -210,7 +233,6 @@ function PacksNatalPage() {
     0,
   )
 
-  // Descontos por patamar de valor total bruto
   const subtotalBruto = basePrice + platesTotal + housesTotal + decorationsTotal
 
   const discountRate =
@@ -242,10 +264,15 @@ function PacksNatalPage() {
 
     setError('')
 
+    const baseVariant = base.variants?.find(
+      (v) => extractSizeLetter(v.name) === baseSize,
+    )
+    const baseLabel = cleanDimensions(baseVariant?.name || baseSize)
+
     const lines = [
       '🎄 *Pedido de Natal — BROMINDS*',
       '',
-      `Base: ${base.name} (${baseSize}) — ${money(basePrice)}`,
+      `Base: ${base.name} (${baseLabel}) — ${money(basePrice)}`,
       '',
       '*Placas:*',
       ...(selectedPlateItems.length > 0
@@ -397,6 +424,8 @@ function PacksNatalPage() {
     </>
   )
 
+  const plaqueImage = plaque?.images?.[0]?.src
+
   return (
     <div className="bg-paper pb-32 lg:pb-12">
       <section className="border-b border-ink/10 bg-paper-2">
@@ -422,7 +451,7 @@ function PacksNatalPage() {
       </section>
 
       <section className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 py-8 lg:grid-cols-[1fr_340px] lg:gap-10 lg:py-10">
-        {/* RESUMO LATERAL - DESKTOP (STICKY) */}
+        {/* RESUMO LATERAL - DESKTOP */}
         <aside className="hidden h-fit rounded-card border border-ink/10 bg-white p-5 sm:p-6 lg:order-2 lg:block lg:sticky lg:top-6">
           <p className="text-xs uppercase tracking-[0.15em] text-ember">
             A tua escolha
@@ -452,9 +481,9 @@ function PacksNatalPage() {
           </p>
         </aside>
 
-        {/* PRODUTOS / PASSOS */}
+        {/* PASSOS DE SELEÇÃO */}
         <div className="order-1 min-w-0 space-y-10">
-          {/* 1. BASE */}
+          {/* 1. ESCOLHE A BASE */}
           <section>
             <div className="mb-4 flex items-center gap-3">
               <span className="flex size-9 items-center justify-center rounded-full bg-ember text-sm font-bold text-white">
@@ -473,29 +502,26 @@ function PacksNatalPage() {
                 Não foi encontrada uma base de Natal.
               </p>
             ) : (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {(base.variants ?? []).map((variant) => {
-                  const sizeCm = variant.size || base.pack_size
+                  const letter = extractSizeLetter(variant.name)
+                  const label = cleanDimensions(variant.name)
+
                   return (
                     <button
                       key={variant.name}
                       type="button"
-                      aria-pressed={baseSize === variant.name}
-                      onClick={() => setBaseSize(variant.name)}
+                      aria-pressed={baseSize === letter}
+                      onClick={() => setBaseSize(letter)}
                       className={`rounded-card border p-4 text-left transition ${
-                        baseSize === variant.name
+                        baseSize === letter
                           ? 'border-ember bg-ember/5 ring-1 ring-ember'
                           : 'border-ink/10 bg-white hover:border-ink/30'
                       }`}
                     >
-                      <span className="block text-lg font-bold text-ink">
-                        {variant.name}
+                      <span className="block text-base font-bold text-ink">
+                        {label}
                       </span>
-                      {sizeCm && (
-                        <span className="mt-0.5 block text-xs text-ink-2">
-                          {variant.name} ({sizeCm})
-                        </span>
-                      )}
                       <span className="mt-2 block text-sm font-semibold text-ink">
                         {money(Number(variant.price))}
                       </span>
@@ -506,7 +532,7 @@ function PacksNatalPage() {
             )}
           </section>
 
-          {/* 2. PLACAS */}
+          {/* 2. ESCOLHE AS PLACAS (COM FOTO) */}
           <section>
             <div className="mb-4 flex items-center gap-3">
               <span className="flex size-9 items-center justify-center rounded-full bg-ember text-sm font-bold text-white">
@@ -529,43 +555,54 @@ function PacksNatalPage() {
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 {(plaque.variants ?? []).map((variant) => {
-                  const quantity = selectedPlates[variant.name] ?? 0
-                  const sizeCm = variant.size || plaque.pack_size
+                  const label = cleanDimensions(variant.name)
+                  const quantity = selectedPlates[label] ?? 0
 
                   return (
                     <article
                       key={variant.name}
-                      className={`rounded-card border bg-white p-4 transition ${
+                      className={`overflow-hidden rounded-card border bg-white p-4 transition ${
                         quantity > 0
                           ? 'border-ember bg-ember/5 ring-1 ring-ember'
                           : 'border-ink/10'
                       }`}
                     >
-                      <h3 className="text-lg font-bold text-ink">
-                        Placa {variant.name}
-                      </h3>
-                      {sizeCm && (
-                        <p className="mt-0.5 text-xs text-ink-2">
-                          {variant.name} ({sizeCm})
-                        </p>
-                      )}
-                      <p className="mt-1 text-sm font-semibold text-ink">
-                        {money(Number(variant.price))} / unidade
-                      </p>
+                      <div className="flex items-center gap-4">
+                        <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-paper-2">
+                          {plaqueImage ? (
+                            <img
+                              src={plaqueImage}
+                              alt={variant.name}
+                              className="size-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-2xl">🪵</span>
+                          )}
+                        </div>
 
-                      <div className="mt-4 flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-bold text-ink text-sm sm:text-base">
+                            Placa {label}
+                          </h3>
+                          <p className="mt-0.5 text-xs sm:text-sm font-semibold text-ink">
+                            {money(Number(variant.price))} / unidade
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-end gap-3 border-t border-ink/5 pt-3">
                         <button
                           type="button"
                           onClick={() =>
                             updateSelection(
                               setSelectedPlates,
-                              variant.name,
+                              label,
                               quantity - 1,
                             )
                           }
                           disabled={quantity === 0}
-                          aria-label={`Remover placa ${variant.name}`}
-                          className="flex size-9 items-center justify-center rounded-full border border-ink/15 text-lg disabled:opacity-30"
+                          aria-label={`Remover placa ${label}`}
+                          className="flex size-8 items-center justify-center rounded-full border border-ink/15 text-lg disabled:opacity-30"
                         >
                           −
                         </button>
@@ -579,13 +616,13 @@ function PacksNatalPage() {
                           onClick={() =>
                             updateSelection(
                               setSelectedPlates,
-                              variant.name,
+                              label,
                               quantity + 1,
                             )
                           }
                           disabled={quantity >= 10}
-                          aria-label={`Adicionar placa ${variant.name}`}
-                          className="flex size-9 items-center justify-center rounded-full border border-ink/15 text-lg disabled:opacity-30"
+                          aria-label={`Adicionar placa ${label}`}
+                          className="flex size-8 items-center justify-center rounded-full border border-ink/15 text-lg disabled:opacity-30"
                         >
                           +
                         </button>
@@ -643,13 +680,8 @@ function PacksNatalPage() {
 
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-ink">
-                          Casa de Natal ({item.size})
+                          Casa de Natal {item.displayLabel}
                         </h3>
-                        {item.size_cm && (
-                          <p className="mt-0.5 text-xs text-ink-2">
-                            {item.size} ({item.size_cm})
-                          </p>
-                        )}
                         <p className="mt-1 font-medium text-ember">
                           {money(item.price)}
                         </p>
@@ -722,6 +754,7 @@ function PacksNatalPage() {
                   const isChurch = product.slug.includes('igreja')
                   const ledIncluded =
                     isChurch || LED_INCLUDED_SLUGS.includes(product.slug)
+                  const dims = cleanDimensions(product.pack_size)
 
                   return (
                     <article
@@ -747,9 +780,9 @@ function PacksNatalPage() {
                           <h3 className="font-semibold text-ink">
                             {product.name}
                           </h3>
-                          {product.pack_size && (
+                          {dims && (
                             <p className="mt-0.5 text-xs text-ink-2">
-                              {product.pack_size}
+                              {dims}
                             </p>
                           )}
                           <p className="mt-1 font-medium text-ember">
@@ -812,7 +845,6 @@ function PacksNatalPage() {
 
       {/* BARRA FIXA FLUTUANTE EM MOBILE */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-ink/10 bg-white/95 p-4 shadow-xl backdrop-blur-md lg:hidden">
-        {/* Painel expansível com detalhes do resumo em mobile */}
         {mobileSummaryOpen && (
           <div className="mb-4 max-h-[60vh] overflow-y-auto rounded-card border border-ink/10 bg-paper p-4">
             <div className="mb-3 flex items-center justify-between">
