@@ -500,7 +500,7 @@ function PacksNatalPage() {
                 }`}
               >
                 <p className="font-bold text-ink text-sm">Tiago Costa</p>
-                <p className="text-xs text-ink-2 mt-0.5">Modelação & Produção 3D</p>
+                
               </button>
 
               <button
@@ -516,7 +516,7 @@ function PacksNatalPage() {
                 }`}
               >
                 <p className="font-bold text-ink text-sm">Inês Costa</p>
-                <p className="text-xs text-ink-2 mt-0.5">Atendimento & Encomendas</p>
+               
               </button>
             </div>
           </div>
