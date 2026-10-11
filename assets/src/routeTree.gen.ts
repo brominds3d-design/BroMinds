@@ -9,23 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as PacksNatalRouteImport } from './routes/packs-natal'
-import { Route as FavoritosRouteImport } from './routes/favoritos'
-import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ContactoIndexRouteImport } from './routes/contacto/index'
-import { Route as CategoriasIndexRouteImport } from './routes/categorias/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as FavoritosRouteImport } from './routes/favoritos'
+import { Route as PacksNatalRouteImport } from './routes/packs-natal'
 import { Route as CatalogoIndexRouteImport } from './routes/catalogo/index'
 import { Route as CatalogoProductSlugRouteImport } from './routes/catalogo/$productSlug'
+import { Route as CategoriasIndexRouteImport } from './routes/categorias/index'
+import { Route as ContactoIndexRouteImport } from './routes/contacto/index'
 
-const PacksNatalRoute = PacksNatalRouteImport.update({
-  id: '/packs-natal',
-  path: '/packs-natal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FavoritosRoute = FavoritosRouteImport.update({
-  id: '/favoritos',
-  path: '/favoritos',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -33,19 +28,14 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const FavoritosRoute = FavoritosRouteImport.update({
+  id: '/favoritos',
+  path: '/favoritos',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ContactoIndexRoute = ContactoIndexRouteImport.update({
-  id: '/contacto/',
-  path: '/contacto/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CategoriasIndexRoute = CategoriasIndexRouteImport.update({
-  id: '/categorias/',
-  path: '/categorias/',
+const PacksNatalRoute = PacksNatalRouteImport.update({
+  id: '/packs-natal',
+  path: '/packs-natal',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CatalogoIndexRoute = CatalogoIndexRouteImport.update({
@@ -56,6 +46,16 @@ const CatalogoIndexRoute = CatalogoIndexRouteImport.update({
 const CatalogoProductSlugRoute = CatalogoProductSlugRouteImport.update({
   id: '/catalogo/$productSlug',
   path: '/catalogo/$productSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CategoriasIndexRoute = CategoriasIndexRouteImport.update({
+  id: '/categorias/',
+  path: '/categorias/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactoIndexRoute = ContactoIndexRouteImport.update({
+  id: '/contacto/',
+  path: '/contacto/',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -136,18 +136,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/packs-natal': {
-      id: '/packs-natal'
-      path: '/packs-natal'
-      fullPath: '/packs-natal'
-      preLoaderRoute: typeof PacksNatalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/favoritos': {
-      id: '/favoritos'
-      path: '/favoritos'
-      fullPath: '/favoritos'
-      preLoaderRoute: typeof FavoritosRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -157,25 +150,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/favoritos': {
+      id: '/favoritos'
+      path: '/favoritos'
+      fullPath: '/favoritos'
+      preLoaderRoute: typeof FavoritosRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/contacto/': {
-      id: '/contacto/'
-      path: '/contacto'
-      fullPath: '/contacto/'
-      preLoaderRoute: typeof ContactoIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/categorias/': {
-      id: '/categorias/'
-      path: '/categorias'
-      fullPath: '/categorias/'
-      preLoaderRoute: typeof CategoriasIndexRouteImport
+    '/packs-natal': {
+      id: '/packs-natal'
+      path: '/packs-natal'
+      fullPath: '/packs-natal'
+      preLoaderRoute: typeof PacksNatalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/catalogo/': {
@@ -190,6 +176,20 @@ declare module '@tanstack/react-router' {
       path: '/catalogo/$productSlug'
       fullPath: '/catalogo/$productSlug'
       preLoaderRoute: typeof CatalogoProductSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/categorias/': {
+      id: '/categorias/'
+      path: '/categorias'
+      fullPath: '/categorias/'
+      preLoaderRoute: typeof CategoriasIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contacto/': {
+      id: '/contacto/'
+      path: '/contacto'
+      fullPath: '/contacto/'
+      preLoaderRoute: typeof ContactoIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
