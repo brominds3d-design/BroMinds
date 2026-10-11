@@ -27,6 +27,8 @@ type PackProduct = {
 
 type Selection = Record<string, number>
 
+type ContactPerson = 'tiago' | 'ines'
+
 const money = (value: number) =>
   new Intl.NumberFormat('pt-PT', {
     style: 'currency',
@@ -54,6 +56,11 @@ const LED_INCLUDED_SLUGS = [
   'igreja-natal',
 ]
 
+const CONTACT_NUMBERS: Record<ContactPerson, string> = {
+  tiago: '351916175751',
+  ines: '351912953266',
+}
+
 function PacksNatalPage() {
   const [products, setProducts] = useState<PackProduct[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,7 +69,9 @@ function PacksNatalPage() {
   const [selectedPlates, setSelectedPlates] = useState<Selection>({})
   const [houses, setHouses] = useState<Selection>({})
   const [decorations, setDecorations] = useState<Selection>({})
+  const [selectedContactDesktop, setSelectedContactDesktop] = useState<ContactPerson | null>(null)
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false)
+  const [contactModalOpen, setContactModalOpen] = useState(false)
 
   useEffect(() => {
     async function loadProducts() {
@@ -91,7 +100,6 @@ function PacksNatalPage() {
   const base = products.find((product) => product.pack_type === 'base')
   const plaque = products.find((product) => product.pack_type === 'placa')
 
-  // Identificação robusta das Casas (exclui Igreja)
   const isHouseProduct = (product: PackProduct) => {
     const s = product.slug.toLowerCase()
     const n = product.name.toLowerCase()
@@ -105,7 +113,6 @@ function PacksNatalPage() {
 
   const houseProducts = products.filter(isHouseProduct)
 
-  // Decorações (Igreja e restantes peças, sem Base, Placas ou Casas)
   const decorationProducts = products.filter(
     (product) =>
       product.pack_type !== 'base' &&
@@ -153,7 +160,6 @@ function PacksNatalPage() {
     0,
   )
 
-  // Geração das Casas no Passo 3
   const houseItems = useMemo(() => {
     const items: Array<{
       key: string
@@ -256,7 +262,7 @@ function PacksNatalPage() {
           ? `Faltam ${money(30 - subtotalBruto)} para o desconto máximo de 12%!`
           : '🎉 Parabéns! Atingiste o desconto máximo de 12%!'
 
-  function sendOrder() {
+  function triggerOrder(contact: ContactPerson) {
     if (!base) {
       setError('A base de Natal não está disponível.')
       return
@@ -308,13 +314,23 @@ function PacksNatalPage() {
     ]
 
     const message = encodeURIComponent(lines.join('\n'))
-    const whatsappNumber = '351916175751'
+    const whatsappNumber = CONTACT_NUMBERS[contact]
+
+    setContactModalOpen(false)
 
     window.open(
       `https://wa.me/${whatsappNumber}?text=${message}`,
       '_blank',
       'noopener,noreferrer',
     )
+  }
+
+  function handleDesktopSend() {
+    if (!selectedContactDesktop) {
+      setError('Seleciona quem pretendes contactar (Tiago ou Inês).')
+      return
+    }
+    triggerOrder(selectedContactDesktop)
   }
 
   if (loading) {
@@ -427,7 +443,7 @@ function PacksNatalPage() {
   const plaqueImage = plaque?.images?.[0]?.src
 
   return (
-    <div className="bg-paper pb-32 lg:pb-12">
+    <div className="bg-paper pb-36 lg:pb-12">
       <section className="border-b border-ink/10 bg-paper-2">
         <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
           <p className="text-xs uppercase tracking-[0.2em] text-ember">
@@ -465,13 +481,53 @@ function PacksNatalPage() {
             {renderSummaryDetails()}
           </div>
 
-          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+          {/* Contacto no PC */}
+          <div className="mt-6 border-t border-ink/10 pt-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-2">
+              Contactar
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedContactDesktop('tiago')
+                  setError('')
+                }}
+                className={`rounded-card border p-3 text-left transition ${
+                  selectedContactDesktop === 'tiago'
+                    ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
+                    : 'border-ink/10 bg-white hover:border-ink/30'
+                }`}
+              >
+                <p className="font-bold text-ink text-sm">Tiago Costa</p>
+                <p className="text-xs text-ink-2 mt-0.5">Modelação & Produção 3D</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedContactDesktop('ines')
+                  setError('')
+                }}
+                className={`rounded-card border p-3 text-left transition ${
+                  selectedContactDesktop === 'ines'
+                    ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
+                    : 'border-ink/10 bg-white hover:border-ink/30'
+                }`}
+              >
+                <p className="font-bold text-ink text-sm">Inês Costa</p>
+                <p className="text-xs text-ink-2 mt-0.5">Atendimento & Encomendas</p>
+              </button>
+            </div>
+          </div>
+
+          {error && <p className="mt-4 text-sm font-medium text-red-600">{error}</p>}
 
           <button
             type="button"
-            onClick={sendOrder}
-            disabled={!base}
-            className="mt-6 w-full rounded-card bg-ember px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleDesktopSend}
+            disabled={!base || !selectedContactDesktop}
+            className="mt-6 w-full rounded-card bg-emerald-600 px-5 py-3.5 font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Encomendar pelo WhatsApp
           </button>
@@ -515,7 +571,7 @@ function PacksNatalPage() {
                       onClick={() => setBaseSize(letter)}
                       className={`rounded-card border p-4 text-left transition ${
                         baseSize === letter
-                          ? 'border-ember bg-ember/5 ring-1 ring-ember'
+                          ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
                           : 'border-ink/10 bg-white hover:border-ink/30'
                       }`}
                     >
@@ -563,7 +619,7 @@ function PacksNatalPage() {
                       key={variant.name}
                       className={`overflow-hidden rounded-card border bg-white p-4 transition ${
                         quantity > 0
-                          ? 'border-ember bg-ember/5 ring-1 ring-ember'
+                          ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
                           : 'border-ink/10'
                       }`}
                     >
@@ -661,7 +717,7 @@ function PacksNatalPage() {
                     key={item.key}
                     className={`rounded-card border bg-white p-4 transition ${
                       item.quantity > 0
-                        ? 'border-ember bg-ember/5 ring-1 ring-ember'
+                        ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
                         : 'border-ink/10'
                     }`}
                   >
@@ -875,21 +931,73 @@ function PacksNatalPage() {
                 </span>
               )}
             </div>
-            <span className="block text-xs font-medium text-ember underline">
+            <span className="block text-xs font-medium text-emerald-700 underline">
               {mobileSummaryOpen ? 'Esconder resumo' : 'Ver resumo'}
             </span>
           </button>
 
           <button
             type="button"
-            onClick={sendOrder}
+            onClick={() => setContactModalOpen(true)}
             disabled={!base}
-            className="rounded-card bg-ember px-5 py-3 text-sm font-semibold text-white shadow-md transition active:scale-95 disabled:opacity-50"
+            className="rounded-card bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-md transition active:scale-95 disabled:opacity-50"
           >
             Encomendar WhatsApp
           </button>
         </div>
       </div>
+
+      {/* POPUP / MODAL DE ESCOLHA DE CONTACTO EM MOBILE */}
+      {contactModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-sm rounded-card border border-ink/10 bg-white p-5 shadow-2xl animate-in fade-in slide-in-from-bottom-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-ink">Com quem queres falar?</h3>
+              <button
+                type="button"
+                onClick={() => setContactModalOpen(false)}
+                className="flex size-7 items-center justify-center rounded-full bg-paper-2 text-ink-2 hover:text-ink text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mt-1.5 text-xs text-ink-2">
+              Escolhe um dos contactos para enviar o teu pack pelo WhatsApp:
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => triggerOrder('tiago')}
+                className="w-full rounded-card border border-emerald-600/30 bg-emerald-50/50 p-3.5 text-left transition active:scale-98 hover:border-emerald-600 hover:bg-emerald-50"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-ink">Tiago Costa</p>
+                    <p className="text-xs text-ink-2">Modelação & Produção 3D</p>
+                  </div>
+                  <span className="text-lg">💬</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => triggerOrder('ines')}
+                className="w-full rounded-card border border-emerald-600/30 bg-emerald-50/50 p-3.5 text-left transition active:scale-98 hover:border-emerald-600 hover:bg-emerald-50"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-ink">Inês Costa</p>
+                    <p className="text-xs text-ink-2">Atendimento & Encomendas</p>
+                  </div>
+                  <span className="text-lg">💬</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
