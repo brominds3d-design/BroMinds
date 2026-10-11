@@ -9,8 +9,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
     "@tailwindcss/vite": "4.2.2",
-    "@tanstack/react-router": "1.168.22",
-    "@tanstack/react-start": "1.167.41",
+    "@tanstack/react-router": "^1.170.42",
+    "@tanstack/react-start": "^1.168.61",
     "@tanstack/router-plugin": "1.167.22",
     "heic-to": "^1.5.2",
     "heic2any": "^0.0.4",
