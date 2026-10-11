@@ -1,5 +1,12 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ArrowRight, Boxes, Palette, ShoppingBag, Sparkles, Layers } from 'lucide-react'
+import {
+  ArrowRight,
+  Boxes,
+  Palette,
+  ShoppingBag,
+  Sparkles,
+  Layers,
+} from 'lucide-react'
 import { CategoryCard } from '@/components/CategoryCard'
 import { OrderButton } from '@/components/OrderButton'
 import { ProductCard } from '@/components/ProductCard'
@@ -50,7 +57,10 @@ function HomePage() {
 
   return (
     <>
-      <Hero totalProducts={totalProducts} categoryCount={featuredCategories.length} />
+      <Hero
+        totalProducts={totalProducts}
+        categoryCount={featuredCategories.length}
+      />
 
       {/* 1. COLEÇÕES EM PRIMEIRO LUGAR */}
       <Section id="colecoes">
@@ -58,7 +68,12 @@ function HomePage() {
           label="Coleções BroMinds"
           title="Explora por Categoria"
           description="Encontra modelos utilitários, peças decorativas e projetos especiais organizados por tema."
-          action={{ href: '/categorias', label: 'Ver todas as categorias' } as any}
+          action={
+            {
+              href: '/categorias',
+              label: 'Ver todas as categorias',
+            } as any
+          }
         />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -81,12 +96,21 @@ function HomePage() {
             label="Novidades da Oficina"
             title="Adicionados Recentemente"
             description="As últimas criações e peças acabadas de sair da nossa impressora 3D."
-            action={{ href: '/catalogo', label: 'Ver todo o catálogo' } as any}
+            action={
+              {
+                href: '/catalogo',
+                label: 'Ver todo o catálogo',
+              } as any
+            }
           />
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {recentProducts.map((product, index) => (
-              <ProductCard key={product.id} product={product} delay={0.05 * index} />
+              <ProductCard
+                key={product.id}
+                product={product}
+                delay={0.05 * index}
+              />
             ))}
           </div>
         </Section>
@@ -117,12 +141,15 @@ function Hero({
           {/* Coluna Esquerda: Texto e Botões */}
           <div className="flex flex-col items-start gap-5 lg:col-span-7">
             <span className="rise label-mono flex items-center gap-2 rounded-full border border-ember/25 bg-ember/10 px-3.5 py-1 text-xs font-semibold text-ember shadow-sm">
-              <span className="h-2 w-2 rounded-full bg-ember animate-pulse" aria-hidden="true" />
+              <span
+                className="h-2 w-2 animate-pulse rounded-full bg-ember"
+                aria-hidden="true"
+              />
               BroMinds · Impressão 3D & Design Criativo
             </span>
 
             <h1
-              className="rise text-[2.4rem] leading-[1.05] sm:text-[3.2rem] lg:text-[3.8rem] font-extrabold text-ink"
+              className="rise text-[2.4rem] font-extrabold leading-[1.05] text-ink sm:text-[3.2rem] lg:text-[3.8rem]"
               style={{ animationDelay: '0.06s' }}
             >
               Design, precisão e{' '}
@@ -139,11 +166,13 @@ function Hero({
               className="rise max-w-[46ch] text-base leading-relaxed text-ink-2 sm:text-lg"
               style={{ animationDelay: '0.12s' }}
             >
-              Peças decorativas e utilitárias impressas sob encomenda com filamento premium. Feito à medida para a tua casa ou secretária.
+              Peças decorativas e utilitárias impressas sob encomenda com
+              filamento premium. Feito à medida para a tua casa ou secretária.
             </p>
 
+            {/* BOTÕES PRINCIPAIS */}
             <div
-              className="rise flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center pt-1"
+              className="rise flex w-full flex-col gap-3 pt-1 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center"
               style={{ animationDelay: '0.18s' }}
             >
               <a
@@ -162,32 +191,61 @@ function Hero({
                 <ShoppingBag className="h-4 w-4 text-ink-3" />
                 Ver Todo o Catálogo
               </Link>
+
+              {/* NOVO BOTÃO: CRIAR PACK DE NATAL */}
+              <Link
+                to="/packs-natal"
+                className="inline-flex items-center justify-center gap-2 rounded-card border border-ember/30 bg-[var(--color-gold)]/20 px-6 py-3.5 font-semibold text-ink transition hover:border-ember hover:bg-[var(--color-gold)]/35"
+              >
+                <Sparkles className="h-4 w-4 text-ember" />
+                Criar Pack de Natal
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
 
+            {/* ESTATÍSTICAS */}
             <dl
               className="rise mt-1 flex flex-wrap gap-x-6 gap-y-2 border-t border-paper-3 pt-4 text-ink-2"
               style={{ animationDelay: '0.24s' }}
             >
-              <Stat icon={Boxes} value={`${totalProducts} modelos`} label="disponíveis" />
-              <Stat icon={Palette} value={`${categoryCount} categorias`} label="em catálogo" />
-           <Stat icon={Sparkles} value="Personalização" label="Cores e detalhes à tua escolha" />
+              <Stat
+                icon={Boxes}
+                value={`${totalProducts} modelos`}
+                label="disponíveis"
+              />
+
+              <Stat
+                icon={Palette}
+                value={`${categoryCount} categorias`}
+                label="em catálogo"
+              />
+
+              <Stat
+                icon={Sparkles}
+                value="Personalização"
+                label="Cores e detalhes à tua escolha"
+              />
             </dl>
           </div>
 
           {/* Coluna Direita: Cartão com Logótipo */}
-          <div className="hidden lg:col-span-5 lg:flex justify-center items-center">
-            <div className="relative w-full max-w-[340px] aspect-square rounded-3xl border border-paper-3 bg-gradient-to-br from-paper via-paper to-ember/5 p-8 shadow-xl flex flex-col items-center justify-center group hover:border-ember/30 transition-all duration-500">
-              <div className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-ember/20 to-[var(--color-gold)]/20 blur-xl opacity-50 group-hover:opacity-80 transition duration-500" />
-              
+          <div className="hidden items-center justify-center lg:col-span-5 lg:flex">
+            <div className="group relative flex aspect-square w-full max-w-[340px] flex-col items-center justify-center rounded-3xl border border-paper-3 bg-gradient-to-br from-paper via-paper to-ember/5 p-8 shadow-xl transition-all duration-500 hover:border-ember/30">
+              <div
+                className="absolute -inset-1 rounded-3xl bg-gradient-to-r from-ember/20 to-[var(--color-gold)]/20 opacity-50 blur-xl transition duration-500 group-hover:opacity-80"
+              />
+
               <div className="relative z-10 flex flex-col items-center text-center">
                 <img
                   src="/img/logo-brominds.png"
                   alt="BroMinds 3D"
-                  className="w-48 h-48 object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-500"
+                  className="h-48 w-48 object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-105"
                 />
-                <span className="mt-4 text-xs font-mono tracking-widest text-ink-3 uppercase">
+
+                <span className="mt-4 font-mono text-xs uppercase tracking-widest text-ink-3">
                   Oficina de Impressão 3D
                 </span>
+
                 <span className="text-xs font-semibold text-ember">
                   BroMinds Oficial
                 </span>
@@ -212,8 +270,12 @@ function Stat({
   return (
     <div className="flex items-center gap-2.5">
       <Icon className="h-4 w-4 text-ember" aria-hidden="true" />
+
       <div>
-        <dt className="font-mono text-[0.86rem] font-medium text-ink">{value}</dt>
+        <dt className="font-mono text-[0.86rem] font-medium text-ink">
+          {value}
+        </dt>
+
         <dd className="text-[0.74rem] text-ink-3">{label}</dd>
       </div>
     </div>
@@ -224,24 +286,31 @@ function CustomOrderBanner() {
   return (
     <Section>
       <div className="grain relative overflow-hidden rounded-card-lg bg-ember-deep px-6 py-12 text-paper sm:px-10 sm:py-16">
-        <div className="voxel-grid absolute inset-0 opacity-25" aria-hidden="true" />
+        <div
+          className="voxel-grid absolute inset-0 opacity-25"
+          aria-hidden="true"
+        />
 
         <div className="relative flex flex-col items-start gap-5 sm:max-w-[48ch]">
-          <span className="label-mono text-[var(--color-gold)]">Projetos Personalizados</span>
+          <span className="label-mono text-[var(--color-gold)]">
+            Projetos Personalizados
+          </span>
 
           <h2 className="text-[1.8rem] sm:text-[2.2rem]">
             Precisas de uma peça com medidas ou cores personalizadas?
           </h2>
 
           <p className="text-[0.95rem] leading-relaxed text-paper/80">
-            Fazemos impressões sob encomenda a partir de ficheiros STL ou das tuas próprias ideias. Entra em contacto connosco para orçamentos sem compromisso.
+            Fazemos impressões sob encomenda a partir de ficheiros STL ou das
+            tuas próprias ideias. Entra em contacto connosco para orçamentos
+            sem compromisso.
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-   <OrderButton
-  size="lg"
-  className="bg-paper !text-ink hover:bg-ember hover:!text-ink"
-/>
+            <OrderButton
+              size="lg"
+              className="bg-paper !text-ink hover:bg-ember hover:!text-ink"
+            />
 
             <Link
               to="/contacto"
