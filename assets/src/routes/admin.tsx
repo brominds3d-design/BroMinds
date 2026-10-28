@@ -1,4 +1,3 @@
-
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -18,7 +17,10 @@ import {
   Layers,
   LayoutDashboard,
   Gift,
+  Search,
+  Percent,
 } from 'lucide-react'
+import { applyDiscount, discountSource, effectiveDiscount } from '@/lib/promo'
 
 export const Route = createFileRoute('/admin')({
   component: AdminPage,
@@ -138,7 +140,7 @@ async function processImage(file: File): Promise<Blob> {
 
 function AdminPage() {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'products' | 'categories' | 'christmas-packs'
+    'overview' | 'products' | 'categories' | 'christmas-packs' | 'promotions'
   >('overview')
 
   // Dados globais
@@ -150,6 +152,18 @@ function AdminPage() {
     Record<string, number>
   >({})
   const [totalFavsCount, setTotalFavsCount] = useState(0)
+
+  // Filtros da lista de peças (abas Peças e Packs de Natal)
+  const [filterCategory, setFilterCategory] = useState<string>('all')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [packOnlyEligible, setPackOnlyEligible] = useState(false)
+
+  // Promoções
+  const [catPromoDrafts, setCatPromoDrafts] = useState<Record<string, string>>({})
+  const [prodPromoDrafts, setProdPromoDrafts] = useState<Record<string, string>>({})
+  const [promoSavingKey, setPromoSavingKey] = useState<string | null>(null)
+  const [promoSuccess, setPromoSuccess] = useState('')
+  const [promoError, setPromoError] = useState('')
 
   // Feedback geral
   const [loading, setLoading] = useState(false)
@@ -402,6 +416,198 @@ function AdminPage() {
 
   const packDecorativeCount = eligiblePackProducts.filter(
     (product) => product.pack_type === 'decorativo',
+  ).length
+
+  // ============================================================
+  // FILTROS POR CATEGORIA E PESQUISA
+  // ============================================================
+
+  const normalizeText = (text: string) =>
+    text
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+
+  const categoryName = (id: string | null | undefined) =>
+    categoriesList.find((cat) => cat.id === id)?.name ||
+    id ||
+    'Sem categoria'
+
+  const categoryCounts = productsList.reduce<Record<string, number>>(
+    (acc, prod) => {
+      const key = prod.category_id || ''
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    },
+    {},
+  )
+
+  const filteredProducts = productsList.filter((prod) => {
+    const matchesCategory =
+      filterCategory === 'all' || prod.category_id === filterCategory
+
+    const term = normalizeText(searchTerm.trim())
+    const matchesSearch =
+      !term || normalizeText(prod.name || '').includes(term)
+
+    return matchesCategory && matchesSearch
+  })
+
+  const filteredPackProducts = packOnlyEligible
+    ? filteredProducts.filter((prod) => prod.pack_eligible)
+    : filteredProducts
+
+  const renderProductFilters = () => (
+    <div className="mb-4 space-y-3">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Pesquisar peça pelo nome..."
+          className="w-full rounded-xl border border-paper-3 bg-paper p-2.5 pl-9 text-sm outline-none focus:border-ember"
+        />
+        {searchTerm && (
+          <button
+            type="button"
+            onClick={() => setSearchTerm('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-ink-3 hover:bg-paper-2"
+            aria-label="Limpar pesquisa"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setFilterCategory('all')}
+          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+            filterCategory === 'all'
+              ? 'border-ember bg-ember text-paper'
+              : 'border-paper-3 bg-paper text-ink-2 hover:bg-paper-2'
+          }`}
+        >
+          Todas ({productsList.length})
+        </button>
+
+        {categoriesList
+          .filter((cat) => (categoryCounts[cat.id] || 0) > 0)
+          .map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setFilterCategory(cat.id)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                filterCategory === cat.id
+                  ? 'border-ember bg-ember text-paper'
+                  : 'border-paper-3 bg-paper text-ink-2 hover:bg-paper-2'
+              }`}
+            >
+              {cat.name} ({categoryCounts[cat.id]})
+            </button>
+          ))}
+      </div>
+    </div>
+  )
+
+  // ============================================================
+  // LÓGICA DAS PROMOÇÕES
+  // ============================================================
+
+  const formatEuro = (value: number) => `${value.toFixed(2).replace('.', ',')} €`
+
+  /** Converte o texto escrito numa percentagem válida (0–90) */
+  const parsePercent = (raw: string): number | null | 'invalid' => {
+    const text = raw.trim().replace(',', '.').replace('%', '')
+    if (!text) return null
+    const value = Number(text)
+    if (!Number.isFinite(value) || value < 0 || value > 90) return 'invalid'
+    return Math.round(value * 100) / 100
+  }
+
+  const categoryDiscountOf = (categoryId: string | null | undefined) =>
+    categoriesList.find((cat) => cat.id === categoryId)?.discount_percent ?? null
+
+  const saveCategoryPromo = async (cat: any, value: number | null) => {
+    setPromoSuccess('')
+    setPromoError('')
+    setPromoSavingKey(`cat-${cat.id}`)
+
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .update({ discount_percent: value && value > 0 ? value : null })
+        .eq('id', cat.id)
+
+      if (error) throw error
+
+      setCategoriesList((current) =>
+        current.map((item) =>
+          item.id === cat.id
+            ? { ...item, discount_percent: value && value > 0 ? value : null }
+            : item,
+        ),
+      )
+      setCatPromoDrafts((current) => {
+        const next = { ...current }
+        delete next[cat.id]
+        return next
+      })
+      setPromoSuccess(
+        value && value > 0
+          ? `Promoção de ${value}% ativada em "${cat.name}".`
+          : `Promoção removida de "${cat.name}".`,
+      )
+    } catch (err: any) {
+      setPromoError(err?.message || 'Não foi possível guardar a promoção.')
+    } finally {
+      setPromoSavingKey(null)
+    }
+  }
+
+  const saveProductPromo = async (prod: any, value: number | null) => {
+    setPromoSuccess('')
+    setPromoError('')
+    setPromoSavingKey(`prod-${prod.id}`)
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ discount_percent: value })
+        .eq('id', prod.id)
+
+      if (error) throw error
+
+      setProductsList((current) =>
+        current.map((item) =>
+          item.id === prod.id ? { ...item, discount_percent: value } : item,
+        ),
+      )
+      setProdPromoDrafts((current) => {
+        const next = { ...current }
+        delete next[prod.id]
+        return next
+      })
+      setPromoSuccess(
+        value === null
+          ? `"${prod.name}" voltou a seguir a promoção da categoria.`
+          : value === 0
+            ? `"${prod.name}" ficou sem promoção.`
+            : `Promoção de ${value}% ativada em "${prod.name}".`,
+      )
+    } catch (err: any) {
+      setPromoError(err?.message || 'Não foi possível guardar a promoção.')
+    } finally {
+      setPromoSavingKey(null)
+    }
+  }
+
+  const productsOnPromo = productsList.filter(
+    (prod) =>
+      effectiveDiscount(prod.discount_percent, categoryDiscountOf(prod.category_id)) > 0,
   ).length
 
   // ============================================================
@@ -864,6 +1070,23 @@ function AdminPage() {
         >
           <Gift className="h-4 w-4" />
           Packs de Natal
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('promotions')
+            setPromoSuccess('')
+            setPromoError('')
+          }}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition ${
+            activeTab === 'promotions'
+              ? 'border-ember text-ember'
+              : 'border-transparent text-ink-2 hover:text-ink'
+          }`}
+        >
+          <Percent className="h-4 w-4" />
+          Promoções ({productsOnPromo})
         </button>
       </div>
 
@@ -1355,11 +1578,23 @@ function AdminPage() {
           {/* Listagem de peças */}
           <div>
             <h3 className="text-xl font-bold text-ink mb-4">
-              Peças em Catálogo ({productsList.length})
+              Peças em Catálogo (
+              {filteredProducts.length === productsList.length
+                ? productsList.length
+                : `${filteredProducts.length} de ${productsList.length}`}
+              )
             </h3>
 
+            {renderProductFilters()}
+
+            {filteredProducts.length === 0 && (
+              <p className="rounded-xl border border-paper-3 bg-paper p-6 text-center text-sm text-ink-3">
+                Nenhuma peça encontrada com estes filtros.
+              </p>
+            )}
+
             <div className="grid gap-3">
-              {productsList.map((prod) => (
+              {filteredProducts.map((prod) => (
                 <div
                   key={prod.id}
                   className="flex items-center justify-between gap-3 p-3.5 bg-paper rounded-xl border border-paper-3 hover:border-ink/20 transition"
@@ -1383,7 +1618,7 @@ function AdminPage() {
                       </h4>
 
                       <p className="text-xs text-ink-3 flex flex-wrap items-center gap-2 mt-0.5">
-                        <span>{prod.category_id}</span>
+                        <span>{categoryName(prod.category_id)}</span>
                         <span>·</span>
                         <span>
                           {Number(prod.base_price || 0).toFixed(2)} €
@@ -1802,6 +2037,24 @@ function AdminPage() {
               </span>
             </div>
 
+            {renderProductFilters()}
+
+            <label className="mb-4 flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-ink">
+              <input
+                type="checkbox"
+                checked={packOnlyEligible}
+                onChange={(e) => setPackOnlyEligible(e.target.checked)}
+                className="rounded border-paper-3 text-ember"
+              />
+              Mostrar só as peças elegíveis para packs
+            </label>
+
+            {productsList.length > 0 && filteredPackProducts.length === 0 && (
+              <p className="mb-4 rounded-xl border border-paper-3 bg-paper p-6 text-center text-sm text-ink-3">
+                Nenhuma peça encontrada com estes filtros.
+              </p>
+            )}
+
             {productsList.length === 0 ? (
               <div className="bg-paper p-8 rounded-2xl border border-paper-3 text-center">
                 <Package className="h-8 w-8 mx-auto text-ink-3 mb-3" />
@@ -1814,7 +2067,7 @@ function AdminPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {productsList.map((prod) => {
+                {filteredPackProducts.map((prod) => {
                   const eligible = Boolean(prod.pack_eligible)
                   const selectedType = prod.pack_type || ''
                   const needsSize =
@@ -1848,7 +2101,7 @@ function AdminPage() {
                           </h4>
 
                           <p className="text-xs text-ink-3 mt-1">
-                            Categoria: {prod.category_id || 'Sem categoria'}
+                            Categoria: {categoryName(prod.category_id)}
                           </p>
 
                           <p className="text-xs text-ink-3 mt-0.5">
@@ -2051,6 +2304,283 @@ function AdminPage() {
               do pack completo à encomenda.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          ABA 5: PROMOÇÕES
+      ========================================================= */}
+      {activeTab === 'promotions' && (
+        <div className="space-y-8">
+          {/* Introdução */}
+          <div className="bg-paper p-6 rounded-2xl border border-paper-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-3 rounded-xl bg-red-50 text-red-600">
+                <Percent className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-extrabold text-ink">Promoções</h2>
+                <p className="mt-1 text-sm text-ink-3">
+                  Põe uma categoria inteira em promoção ou escolhe peça a peça.
+                  O preço normal nunca é alterado: para acabar a promoção, basta
+                  removê-la. No site aparece o preço antigo riscado e o novo a
+                  vermelho.
+                </p>
+                <p className="mt-2 text-xs text-ink-3">
+                  <strong className="text-ink">{productsOnPromo}</strong> de{' '}
+                  {productsList.length} peças estão em promoção neste momento.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {promoSuccess && (
+            <div className="p-4 bg-green-50 border border-green-200 text-green-700 rounded-xl flex items-center gap-2 text-sm font-semibold">
+              <CheckCircle className="h-5 w-5 shrink-0" />
+              {promoSuccess}
+            </div>
+          )}
+
+          {promoError && (
+            <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-semibold">
+              {promoError}
+            </div>
+          )}
+
+          {/* Promoção por categoria */}
+          <section>
+            <h3 className="text-xl font-bold text-ink">Promoção por categoria</h3>
+            <p className="text-xs text-ink-3 mt-1 mb-4">
+              Aplica-se a todas as peças da categoria, exceto às que tenham
+              promoção própria ou estejam marcadas como «Sem promoção».
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {categoriesList.map((cat) => {
+                const current = Number(cat.discount_percent || 0)
+                const draft =
+                  catPromoDrafts[cat.id] ?? (current > 0 ? String(current) : '')
+                const saving = promoSavingKey === `cat-${cat.id}`
+                const count = categoryCounts[cat.id] || 0
+
+                return (
+                  <div
+                    key={cat.id}
+                    className={`rounded-2xl border bg-paper p-4 ${
+                      current > 0 ? 'border-red-300' : 'border-paper-3'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-ink">{cat.name}</h4>
+                        <p className="text-xs text-ink-3">{count} peças</p>
+                      </div>
+                      {current > 0 && (
+                        <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                          −{current}%
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className="relative w-24">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={draft}
+                          onChange={(e) =>
+                            setCatPromoDrafts((d) => ({ ...d, [cat.id]: e.target.value }))
+                          }
+                          placeholder="0"
+                          className="w-full rounded-lg border border-paper-3 bg-paper-2 p-2 pr-7 text-sm outline-none focus:border-ember"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-3">
+                          %
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => {
+                          const parsed = parsePercent(draft)
+                          if (parsed === 'invalid') {
+                            setPromoError('Indica uma percentagem entre 0 e 90.')
+                            return
+                          }
+                          void saveCategoryPromo(cat, parsed)
+                        }}
+                        className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-paper hover:bg-ember disabled:opacity-50"
+                      >
+                        {saving ? 'A guardar...' : 'Guardar'}
+                      </button>
+
+                      {current > 0 && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void saveCategoryPromo(cat, null)}
+                          className="rounded-lg border border-paper-3 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-red-600 disabled:opacity-50"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* Promoção por peça */}
+          <section>
+            <h3 className="text-xl font-bold text-ink">Promoção por peça</h3>
+            <p className="text-xs text-ink-3 mt-1 mb-4">
+              Uma percentagem aqui substitui a da categoria. Deixa vazio para a
+              peça seguir a categoria.
+            </p>
+
+            {renderProductFilters()}
+
+            {filteredProducts.length === 0 && (
+              <p className="rounded-xl border border-paper-3 bg-paper p-6 text-center text-sm text-ink-3">
+                Nenhuma peça encontrada com estes filtros.
+              </p>
+            )}
+
+            <div className="grid gap-3">
+              {filteredProducts.map((prod) => {
+                const catDiscount = categoryDiscountOf(prod.category_id)
+                const catPct = Number(catDiscount || 0)
+                const ownRaw = prod.discount_percent
+                const effective = effectiveDiscount(ownRaw, catDiscount)
+                const source = discountSource(ownRaw, catDiscount)
+                const price = Number(prod.base_price || 0)
+                const draft =
+                  prodPromoDrafts[prod.id] ??
+                  (ownRaw !== null && ownRaw !== undefined ? String(ownRaw) : '')
+                const saving = promoSavingKey === `prod-${prod.id}`
+
+                const sourceLabel =
+                  source === 'own'
+                    ? `Promoção própria (${effective}%)`
+                    : source === 'category'
+                      ? `Promoção da categoria (${catPct}%)`
+                      : source === 'excluded'
+                        ? 'Fora da promoção da categoria'
+                        : 'Sem promoção'
+
+                return (
+                  <div
+                    key={prod.id}
+                    className={`flex flex-col gap-3 rounded-xl border bg-paper p-3.5 sm:flex-row sm:items-center sm:justify-between ${
+                      effective > 0 ? 'border-red-300' : 'border-paper-3'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {prod.images?.[0]?.src ? (
+                        <img
+                          src={prod.images[0].src}
+                          alt=""
+                          className="h-12 w-12 rounded-lg object-cover border border-paper-3"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg bg-paper-2 flex items-center justify-center">
+                          <ImageIcon className="h-5 w-5 text-ink-3" />
+                        </div>
+                      )}
+
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-ink">{prod.name}</h4>
+                        <p className="text-xs text-ink-3">
+                          {categoryName(prod.category_id)} ·{' '}
+                          <span
+                            className={
+                              effective > 0 ? 'font-semibold text-red-600' : ''
+                            }
+                          >
+                            {sourceLabel}
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-xs">
+                          {effective > 0 ? (
+                            <>
+                              <span className="text-ink-3 line-through">
+                                {formatEuro(price)}
+                              </span>{' '}
+                              <span className="font-bold text-red-600">
+                                {formatEuro(applyDiscount(price, effective))}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-ink-2">{formatEuro(price)}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                      <div className="relative w-24">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={draft}
+                          onChange={(e) =>
+                            setProdPromoDrafts((d) => ({ ...d, [prod.id]: e.target.value }))
+                          }
+                          placeholder={catPct > 0 ? `${catPct}` : '0'}
+                          className="w-full rounded-lg border border-paper-3 bg-paper-2 p-2 pr-7 text-sm outline-none focus:border-ember"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-3">
+                          %
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => {
+                          const parsed = parsePercent(draft)
+                          if (parsed === 'invalid') {
+                            setPromoError('Indica uma percentagem entre 0 e 90.')
+                            return
+                          }
+                          void saveProductPromo(prod, parsed)
+                        }}
+                        className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-paper hover:bg-ember disabled:opacity-50"
+                      >
+                        {saving ? '...' : 'Guardar'}
+                      </button>
+
+                      {ownRaw !== null && ownRaw !== undefined && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void saveProductPromo(prod, null)}
+                          className="rounded-lg border border-paper-3 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink disabled:opacity-50"
+                          title="Apaga a promoção própria e volta a seguir a categoria"
+                        >
+                          Seguir categoria
+                        </button>
+                      )}
+
+                      {source === 'category' && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => void saveProductPromo(prod, 0)}
+                          className="rounded-lg border border-paper-3 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-red-600 disabled:opacity-50"
+                          title="Esta peça fica fora da promoção da categoria"
+                        >
+                          Sem promoção
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
         </div>
       )}
     </div>

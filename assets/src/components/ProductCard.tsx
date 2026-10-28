@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Heart } from 'lucide-react'
 import { getCurrentUser, toggleFavorite, getFavoriteProductIds, CustomerUser } from '@/lib/auth'
 import { AuthModal } from '@/components/AuthModal'
+import { PriceTag } from '@/components/PriceTag'
 
 interface ProductCardProps {
   product: any
@@ -16,6 +17,8 @@ export function ProductCard({ product, delay = 0 }: ProductCardProps) {
 
   const firstImage = product.images?.[0]?.src || '/img/placeholder.png'
   const secondImage = product.images?.[1]?.src
+  const price = Number(product.price || product.basePrice || 0)
+  const discount = Number(product.discountPercent || 0)
 
   const checkStatus = async () => {
     const currentUser = getCurrentUser()
@@ -88,6 +91,13 @@ export function ProductCard({ product, delay = 0 }: ProductCardProps) {
           </div>
         </Link>
 
+        {/* Selo de promoção no topo esquerdo */}
+        {discount > 0 && (
+          <span className="absolute left-3 top-3 z-10 rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
+            −{Math.round(discount)}%
+          </span>
+        )}
+
         {/* Botão de Favorito no topo direito */}
         <button
           type="button"
@@ -116,10 +126,8 @@ export function ProductCard({ product, delay = 0 }: ProductCardProps) {
             </p>
           )}
 
-          <div className="mt-auto pt-3 flex items-center justify-between">
-            <span className="text-sm font-extrabold text-ink">
-              {(product.price || product.basePrice || 0).toFixed(2)} €
-            </span>
+          <div className="mt-auto pt-3 flex items-end justify-between">
+            <PriceTag price={price} discountPercent={discount} size="sm" />
 
             {product.colors && product.colors.length > 0 && (
               <div className="flex items-center -space-x-1.5">

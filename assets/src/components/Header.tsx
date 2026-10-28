@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Menu, X, Sparkles, MessageCircle, Heart, User, LogOut } from 'lucide-react'
+import { Menu, X, Sparkles, MessageCircle, Heart, User, LogOut, ShoppingCart } from 'lucide-react'
 import { LogoMark, Wordmark } from './Logo'
 import { site } from '@/data/site'
 import { getCurrentUser, saveCurrentUser, CustomerUser } from '@/lib/auth'
+import { getCartCount } from '@/lib/cart'
 import { AuthModal } from './AuthModal'
 
 const nav = [
@@ -22,17 +23,28 @@ export function Header() {
   const [open, setOpen] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [user, setUser] = useState<CustomerUser | null>(null)
+  const [cartCount, setCartCount] = useState(0)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+
+  const updateCartCount = async () => {
+    const currentUser = getCurrentUser()
+    setCartCount(currentUser ? await getCartCount(currentUser.handle) : 0)
+  }
 
   const updateAuth = () => {
     setUser(getCurrentUser())
+    void updateCartCount()
   }
 
   useEffect(() => {
     updateAuth()
+    const onCartChange = () => void updateCartCount()
+
     window.addEventListener('auth_changed', updateAuth)
+    window.addEventListener('cart_changed', onCartChange)
     return () => {
       window.removeEventListener('auth_changed', updateAuth)
+      window.removeEventListener('cart_changed', onCartChange)
     }
   }, [])
 
@@ -87,6 +99,16 @@ export function Header() {
               <Heart className="h-4 w-4" />
             </Link>
 
+            {/* Botão do Carrinho */}
+            <Link
+              to="/carrinho"
+              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-paper-3 bg-paper text-ink transition hover:border-ember hover:text-ember active:scale-95 shadow-sm"
+              title="O meu carrinho"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              <CartBadge count={cartCount} />
+            </Link>
+
             {/* Login / Perfil por @ */}
             {user ? (
               <div className="flex items-center gap-1.5 rounded-xl border border-paper-3 bg-paper-2 px-3 py-1.5 text-xs">
@@ -126,13 +148,23 @@ export function Header() {
             </a>
           </div>
 
-          {/* Botão Hambúrguer Mobile */}
+          {/* Carrinho + Hambúrguer Mobile */}
+          <div className="flex items-center gap-2 md:hidden">
+          <Link
+            to="/carrinho"
+            className="relative grid h-10 w-10 place-items-center rounded-xl border border-paper-3 text-ink transition hover:border-ember hover:bg-paper-2"
+            aria-label="O meu carrinho"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            <CartBadge count={cartCount} />
+          </Link>
+
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
             aria-controls="menu-movel"
-            className="grid h-10 w-10 place-items-center rounded-xl border border-paper-3 text-ink transition hover:border-ember hover:bg-paper-2 md:hidden"
+            className="grid h-10 w-10 place-items-center rounded-xl border border-paper-3 text-ink transition hover:border-ember hover:bg-paper-2"
           >
             {open ? (
               <X className="h-5 w-5 text-ember" aria-hidden="true" />
@@ -141,6 +173,7 @@ export function Header() {
             )}
             <span className="sr-only">{open ? 'Fechar menu' : 'Abrir menu'}</span>
           </button>
+          </div>
         </div>
 
         {/* Painel Móvel */}
@@ -189,6 +222,22 @@ export function Header() {
                 <Heart className="h-4 w-4 text-ember" />
                 Os meus Favoritos
               </span>
+            </Link>
+
+            {/* Link para o Carrinho no Mobile */}
+            <Link
+              to="/carrinho"
+              className="flex items-center justify-between rounded-xl px-3 py-3 font-display text-base font-bold text-ink hover:bg-paper-2 hover:text-ember transition"
+            >
+              <span className="flex items-center gap-2">
+                <ShoppingCart className="h-4 w-4 text-ember" />
+                O meu Carrinho
+              </span>
+              {cartCount > 0 && (
+                <span className="rounded-full bg-ember px-2 py-0.5 text-xs text-paper">
+                  {cartCount}
+                </span>
+              )}
             </Link>
           </nav>
 
@@ -242,6 +291,17 @@ export function Header() {
         onSuccess={() => updateAuth()}
       />
     </>
+  )
+}
+
+/** Bolinha com o número de peças no carrinho */
+function CartBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+
+  return (
+    <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ember px-1 text-[10px] font-bold text-paper shadow-sm">
+      {count > 99 ? '99+' : count}
+    </span>
   )
 }
 

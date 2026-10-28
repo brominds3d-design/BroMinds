@@ -1,6 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
+import { ShoppingCart } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { getCurrentUser, CustomerUser } from '@/lib/auth'
+import { addToCart, WHATSAPP_CONTACTS } from '@/lib/cart'
+import { AuthModal } from '@/components/AuthModal'
 
 export const Route = createFileRoute('/packs-natal')({
   component: PacksNatalPage,
@@ -45,8 +49,24 @@ function cleanDimensions(text: string | null | undefined): string {
   return text
     .replace(/x/g, ' × ')
     .replace(/\s*×\s*/g, ' × ')
-    .replace(/\(\s*/g, '(')     .replace(/\s*\)/g, ')')
+    .replace(/\(\s*/g, '(')
+    .replace(/\s*\)/g, ')')
     .trim()
+}
+
+// Preço "padrão" das decorações dentro do pack (secção 4).
+// O preço real de cada peça vem do campo pack_price no Supabase;
+// esta constante serve apenas para o texto da secção e para decidir
+// se é preciso mostrar o preço no cartão (só se for diferente).
+const PACK_DECORATION_PRICE = 5.5
+
+// Preço de uma decoração dentro do pack:
+// usa pack_price se estiver preenchido no Supabase; caso contrário, 5,50 €.
+// (O preço normal do catálogo, base_price, não é usado no pack.)
+function packPriceOf(product: PackProduct): number {
+  return product.pack_price != null
+    ? Number(product.pack_price)
+    : PACK_DECORATION_PRICE
 }
 
 const LED_INCLUDED_SLUGS = [
@@ -56,9 +76,28 @@ const LED_INCLUDED_SLUGS = [
   'igreja-natal',
 ]
 
+// Remove acentos e passa para minúsculas, para comparar nomes e slugs
+function normalizeText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+// Peças maiores que vão para o ponto 3 ("Peças em destaque"),
+// com o seu preço normal, junto das casas.
+const FEATURED_KEYWORDS = ['arvore', 'presepio']
+
+// Extrai as dimensões que estão entre parênteses, ex.: "S (5 x 4,7 x 7cm)"
+function dimensionsFromLabel(text: string): string {
+  const match = text.match(/\(([^)]+)\)/)
+  return match ? cleanDimensions(match[1]) : ''
+}
+
+// Os números vêm de src/lib/cart.ts (iguais em todo o site)
 const CONTACT_NUMBERS: Record<ContactPerson, string> = {
-  tiago: '351916175751',
-  ines: '351912953266',
+  tiago: WHATSAPP_CONTACTS[0].phone,
+  ines: WHATSAPP_CONTACTS[1].phone,
 }
 
 function PacksNatalPage() {
@@ -72,6 +111,11 @@ function PacksNatalPage() {
   const [selectedContactDesktop, setSelectedContactDesktop] = useState<ContactPerson | null>(null)
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false)
   const [contactModalOpen, setContactModalOpen] = useState(false)
+
+  // Carrinho
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [addingPack, setAddingPack] = useState(false)
+  const [packAdded, setPackAdded] = useState(false)
 
   useEffect(() => {
     async function loadProducts() {
@@ -111,13 +155,29 @@ function PacksNatalPage() {
     )
   }
 
+  const isFeaturedProduct = (product: PackProduct) => {
+    const text = normalizeText(`${product.slug} ${product.name}`)
+    return FEATURED_KEYWORDS.some((keyword) => text.includes(keyword))
+  }
+
   const houseProducts = products.filter(isHouseProduct)
 
+  // Árvore de Natal e Presépio (ponto 3)
+  const featuredProducts = products.filter(
+    (product) =>
+      product.pack_type !== 'base' &&
+      product.pack_type !== 'placa' &&
+      !isHouseProduct(product) &&
+      isFeaturedProduct(product),
+  )
+
+  // Restantes decorações a 5,50 € (ponto 4)
   const decorationProducts = products.filter(
     (product) =>
       product.pack_type !== 'base' &&
       product.pack_type !== 'placa' &&
-      !isHouseProduct(product),
+      !isHouseProduct(product) &&
+      !isFeaturedProduct(product),
   )
 
   function priceFor(product: PackProduct | undefined, sizeLabel: string): number {
@@ -160,15 +220,17 @@ function PacksNatalPage() {
     0,
   )
 
+  // Ponto 3 — Peças em destaque: casas S/M + Árvore + Presépio (preço normal)
   const houseItems = useMemo(() => {
     const items: Array<{
       key: string
       name: string
-      sizeLetter: string
-      displayLabel: string
+      dims: string
       price: number
       quantity: number
       image?: string
+      led: boolean
+      isHouse: boolean
     }> = []
 
     const mainHouse = houseProducts[0]
@@ -178,38 +240,49 @@ function PacksNatalPage() {
         mainHouse.variants.forEach((variant) => {
           const letter = extractSizeLetter(variant.name)
           const key = `casa_${letter}`
-          const label = cleanDimensions(variant.name)
           items.push({
             key,
-            name: `Casa de Natal ${label}`,
-            sizeLetter: letter,
-            displayLabel: label,
+            name: `Casa de Natal ${letter}`,
+            dims: dimensionsFromLabel(variant.name),
             price: Number(variant.price),
             quantity: houses[key] ?? 0,
             image: mainHouse.images?.[0]?.src,
+            led: true,
+            isHouse: true,
           })
         })
       } else {
         houseProducts.forEach((prod) => {
           const letter = prod.slug.includes('-s') ? 'S' : 'M'
-          const label = prod.pack_size
-            ? `${letter} (${cleanDimensions(prod.pack_size)})`
-            : letter
           items.push({
             key: prod.id,
-            name: `Casa de Natal ${label}`,
-            sizeLetter: letter,
-            displayLabel: label,
+            name: `Casa de Natal ${letter}`,
+            dims: cleanDimensions(prod.pack_size),
             price: Number(prod.base_price),
             quantity: houses[prod.id] ?? 0,
             image: prod.images?.[0]?.src,
+            led: true,
+            isHouse: true,
           })
         })
       }
     }
 
+    featuredProducts.forEach((prod) => {
+      items.push({
+        key: prod.id,
+        name: prod.name,
+        dims: cleanDimensions(prod.pack_size),
+        price: Number(prod.base_price),
+        quantity: houses[prod.id] ?? 0,
+        image: prod.images?.[0]?.src,
+        led: LED_INCLUDED_SLUGS.includes(prod.slug),
+        isHouse: false,
+      })
+    })
+
     return items
-  }, [houseProducts, houses])
+  }, [houseProducts, featuredProducts, houses])
 
   const selectedHouses = houseItems.filter((item) => item.quantity > 0)
   const housesTotal = selectedHouses.reduce(
@@ -224,7 +297,8 @@ function PacksNatalPage() {
         .map((product) => ({
           product,
           quantity: decorations[product.id],
-          price: Number(product.base_price),
+          // Dentro do pack usa-se o preço de pack (ex.: 5,50 €)
+          price: packPriceOf(product),
         })),
     [decorationProducts, decorations],
   )
@@ -288,19 +362,19 @@ function PacksNatalPage() {
           )
         : ['Sem placas']),
       '',
-      '*Casas de Natal:*',
+      '*Peças em destaque:*',
       ...(selectedHouses.length > 0
         ? selectedHouses.map(
             (item) =>
               `${item.name} × ${item.quantity} — ${money(item.price * item.quantity)}`,
           )
-        : ['Sem casas de Natal']),
+        : ['Sem peças em destaque']),
       '',
       '*Mais decorações:*',
       ...(selectedDecorations.length > 0
         ? selectedDecorations.map(
             (item) =>
-              `${item.product.name} × ${item.quantity} — ${money(item.price * item.quantity)}`,
+              `${item.product.name} × ${item.quantity} (${money(item.price)}/un.) — ${money(item.price * item.quantity)}`,
           )
         : ['Sem decorações adicionais']),
       '',
@@ -323,6 +397,79 @@ function PacksNatalPage() {
       '_blank',
       'noopener,noreferrer',
     )
+  }
+
+  // Lista do que o pack leva, para mostrar no carrinho e na mensagem
+  function buildPackDetails(): string[] {
+    const baseVariant = base?.variants?.find(
+      (v) => extractSizeLetter(v.name) === baseSize,
+    )
+    const baseLabel = cleanDimensions(baseVariant?.name || baseSize)
+
+    const details = [`Base ${baseLabel} — ${money(basePrice)}`]
+
+    selectedPlateItems.forEach((item) =>
+      details.push(
+        `Placa ${item.size} × ${item.quantity} — ${money(item.price * item.quantity)}`,
+      ),
+    )
+
+    selectedHouses.forEach((item) =>
+      details.push(
+        `${item.name} × ${item.quantity} — ${money(item.price * item.quantity)}`,
+      ),
+    )
+
+    selectedDecorations.forEach((item) =>
+      details.push(
+        `${item.product.name} × ${item.quantity} — ${money(item.price * item.quantity)}`,
+      ),
+    )
+
+    if (discount > 0) {
+      details.push(
+        `Desconto ${Math.round(discountRate * 100)}% aplicado (−${money(discount)})`,
+      )
+    }
+
+    return details
+  }
+
+  async function addPackToCart(user: CustomerUser) {
+    if (!base) {
+      setError('A base de Natal não está disponível.')
+      return
+    }
+
+    setAddingPack(true)
+    setPackAdded(false)
+    setError('')
+
+    try {
+      await addToCart(user.handle, {
+        item_type: 'pack',
+        name: 'Pack de Natal personalizado',
+        unit_price: Number(total.toFixed(2)),
+        quantity: 1,
+        image: base.images?.[0]?.src ?? null,
+        details: buildPackDetails(),
+      })
+      setPackAdded(true)
+    } catch (err) {
+      console.error('Erro ao adicionar pack ao carrinho:', err)
+      setError('Não foi possível adicionar o pack ao carrinho.')
+    } finally {
+      setAddingPack(false)
+    }
+  }
+
+  function handleAddPackToCart() {
+    const user = getCurrentUser()
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
+    void addPackToCart(user)
   }
 
   function handleDesktopSend() {
@@ -405,7 +552,7 @@ function PacksNatalPage() {
           </div>
 
           <div className="mt-2 flex justify-between gap-3">
-            <span className="text-ink-2">Casas</span>
+            <span className="text-ink-2">Peças em destaque</span>
             <span className="text-ink">{money(housesTotal)}</span>
           </div>
 
@@ -461,7 +608,7 @@ function PacksNatalPage() {
           </p>
 
           <p className="mt-4 max-w-2xl font-medium text-ember">
-            Descontos diretos a partir de 12 €! Aproveita até 12% de desconto no teu conjunto.
+            Decorações a {money(PACK_DECORATION_PRICE)} cada e descontos diretos a partir de 12 €!
           </p>
         </div>
       </section>
@@ -500,7 +647,6 @@ function PacksNatalPage() {
                 }`}
               >
                 <p className="font-bold text-ink text-sm">Tiago Costa</p>
-                
               </button>
 
               <button
@@ -516,7 +662,6 @@ function PacksNatalPage() {
                 }`}
               >
                 <p className="font-bold text-ink text-sm">Inês Costa</p>
-               
               </button>
             </div>
           </div>
@@ -535,6 +680,31 @@ function PacksNatalPage() {
           <p className="mt-3 text-center text-xs text-ink-2">
             Envia o teu pack para confirmar a encomenda.
           </p>
+
+          <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+            <span className="h-px flex-1 bg-ink/10" />
+            ou
+            <span className="h-px flex-1 bg-ink/10" />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleAddPackToCart}
+            disabled={!base || addingPack}
+            className="flex w-full items-center justify-center gap-2 rounded-card border border-ink/15 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-ember hover:text-ember disabled:opacity-50"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            {addingPack ? 'A adicionar...' : 'Adicionar pack ao carrinho'}
+          </button>
+
+          {packAdded && (
+            <p className="mt-3 text-center text-xs font-semibold text-emerald-700">
+              ✓ Pack adicionado.{' '}
+              <Link to="/carrinho" className="underline">
+                Ver carrinho
+              </Link>
+            </p>
+          )}
         </aside>
 
         {/* PASSOS DE SELEÇÃO */}
@@ -690,7 +860,7 @@ function PacksNatalPage() {
             )}
           </section>
 
-          {/* 3. CASAS DE NATAL */}
+          {/* 3. PEÇAS EM DESTAQUE (casas, árvore, presépio) */}
           <section>
             <div className="mb-4 flex items-center gap-3">
               <span className="flex size-9 items-center justify-center rounded-full bg-ember text-sm font-bold text-white">
@@ -698,17 +868,17 @@ function PacksNatalPage() {
               </span>
               <div>
                 <h2 className="text-xl font-bold text-ink">
-                  Casas de Natal
+                  Peças em destaque
                 </h2>
                 <p className="text-sm text-ink-2">
-                  Escolhe o tamanho da casa e a quantidade pretendida.
+                  As peças principais do teu cenário, cada uma com o seu preço.
                 </p>
               </div>
             </div>
 
             {houseItems.length === 0 ? (
               <p className="text-sm text-ink-2">
-                Não foram encontradas casas de Natal.
+                Não foram encontradas peças em destaque.
               </p>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -730,20 +900,29 @@ function PacksNatalPage() {
                             className="size-full object-cover"
                           />
                         ) : (
-                          <span className="text-3xl">🏠</span>
+                          <span className="text-3xl">
+                            {item.isHouse ? '🏠' : '🎄'}
+                          </span>
                         )}
                       </div>
 
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-ink">
-                          Casa de Natal {item.displayLabel}
+                          {item.name}
                         </h3>
+                        {item.dims && (
+                          <p className="mt-0.5 text-xs text-ink-2">
+                            {item.dims}
+                          </p>
+                        )}
                         <p className="mt-1 font-medium text-ember">
                           {money(item.price)}
                         </p>
-                        <p className="mt-1.5 text-xs font-medium text-emerald-700">
-                          ✓ Vela LED incluída
-                        </p>
+                        {item.led && (
+                          <p className="mt-1 text-xs font-medium text-emerald-700">
+                            ✓ Vela LED incluída
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -788,11 +967,17 @@ function PacksNatalPage() {
               <span className="flex size-9 items-center justify-center rounded-full bg-ember text-sm font-bold text-white">
                 4
               </span>
-              <div>
-                <h2 className="text-xl font-bold text-ink">
-                  Mais decorações
-                </h2>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-bold text-ink">
+                    Mais decorações
+                  </h2>
+                  <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                    {money(PACK_DECORATION_PRICE)} cada
+                  </span>
+                </div>
                 <p className="text-sm text-ink-2">
+                  No pack, todas as decorações custam {money(PACK_DECORATION_PRICE)}.
                   Junta mais peças e aproveita os descontos por valor.
                 </p>
               </div>
@@ -812,10 +997,18 @@ function PacksNatalPage() {
                     isChurch || LED_INCLUDED_SLUGS.includes(product.slug)
                   const dims = cleanDimensions(product.pack_size)
 
+                  const packPrice = packPriceOf(product)
+                  // Só mostra o preço no cartão se for diferente dos 5,50 €
+                  const showOwnPrice = packPrice !== PACK_DECORATION_PRICE
+
                   return (
                     <article
                       key={product.id}
-                      className="overflow-hidden rounded-card border border-ink/10 bg-white"
+                      className={`overflow-hidden rounded-card border bg-white transition ${
+                        quantity > 0
+                          ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
+                          : 'border-ink/10'
+                      }`}
                     >
                       <div className="flex gap-4 p-4">
                         <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-paper-2">
@@ -841,9 +1034,12 @@ function PacksNatalPage() {
                               {dims}
                             </p>
                           )}
-                          <p className="mt-1 font-medium text-ember">
-                            {money(Number(product.base_price))}
-                          </p>
+
+                          {showOwnPrice && (
+                            <p className="mt-1 font-medium text-ember">
+                              {money(packPrice)}
+                            </p>
+                          )}
 
                           {ledIncluded && (
                             <p className="mt-1 text-xs font-medium text-emerald-700">
@@ -936,15 +1132,36 @@ function PacksNatalPage() {
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setContactModalOpen(true)}
-            disabled={!base}
-            className="rounded-card bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-md transition active:scale-95 disabled:opacity-50"
-          >
-            Encomendar WhatsApp
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAddPackToCart}
+              disabled={!base || addingPack}
+              aria-label="Adicionar pack ao carrinho"
+              className="flex size-11 items-center justify-center rounded-card border border-ink/15 bg-white text-ink shadow-sm transition active:scale-95 disabled:opacity-50"
+            >
+              <ShoppingCart className="h-5 w-5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setContactModalOpen(true)}
+              disabled={!base}
+              className="rounded-card bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-md transition active:scale-95 disabled:opacity-50"
+            >
+              Encomendar WhatsApp
+            </button>
+          </div>
         </div>
+
+        {packAdded && (
+          <p className="mt-2 text-center text-xs font-semibold text-emerald-700">
+            ✓ Pack adicionado ao carrinho.{' '}
+            <Link to="/carrinho" className="underline">
+              Ver carrinho
+            </Link>
+          </p>
+        )}
       </div>
 
       {/* POPUP / MODAL DE ESCOLHA DE CONTACTO EM MOBILE */}
@@ -998,6 +1215,12 @@ function PacksNatalPage() {
           </div>
         </div>
       )}
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={(user: CustomerUser) => void addPackToCart(user)}
+      />
     </div>
   )
 }

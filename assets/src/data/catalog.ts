@@ -2,6 +2,7 @@
  * Camada de consulta do catálogo integrada 100% com o Supabase.
  */
 import { supabase } from '@/lib/supabase'
+import { effectiveDiscount } from '@/lib/promo'
 import type { Category, Product } from './types'
 
 export interface ProductVariant {
@@ -15,6 +16,8 @@ export interface ProductWithCategory extends Omit<Product, 'price'> {
   basePrice: number
   variants?: Array<ProductVariant>
   category: Category | undefined
+  /** Desconto em % que se aplica a esta peça (0 = sem promoção) */
+  discountPercent: number
 }
 
 const byOrder = (a: Category, b: Category) => a.order - b.order
@@ -22,6 +25,7 @@ const byOrder = (a: Category, b: Category) => a.order - b.order
 function mapSupabaseProduct(row: any, categoriesList: Array<Category> = []): ProductWithCategory {
   const variants: Array<ProductVariant> = Array.isArray(row.variants) ? row.variants : []
   const basePrice = Number(row.base_price ?? (variants[0]?.price || 0))
+  const category = categoriesList.find((c) => c.id === row.category_id)
 
   return {
     id: String(row.id),
@@ -40,7 +44,9 @@ function mapSupabaseProduct(row: any, categoriesList: Array<Category> = []): Pro
     details: Array.isArray(row.details) ? row.details : [],
     featured: Boolean(row.featured),
     createdAt: row.created_at || new Date().toISOString(),
-    category: categoriesList.find((c) => c.id === row.category_id),
+    category,
+    // Promoção própria da peça; se não tiver, usa a da categoria
+    discountPercent: effectiveDiscount(row.discount_percent, category?.discount_percent),
   }
 }
 

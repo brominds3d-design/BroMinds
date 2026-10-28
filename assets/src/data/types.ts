@@ -42,6 +42,8 @@ export interface Category {
   order: number
   /** Aparece na seccao "Categorias em destaque" da pagina inicial. */
   featured: boolean
+  /** Promocao da categoria inteira, em % (vazio = sem promocao). */
+  discount_percent?: number | null
 }
 
 export interface Product {

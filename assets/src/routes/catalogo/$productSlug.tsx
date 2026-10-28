@@ -7,11 +7,16 @@ import {
   Minus,
   Plus,
   ShoppingBag,
+  ShoppingCart,
+  CheckCircle,
+  Loader2,
   Heart,
 } from 'lucide-react'
 import { getProductBySlug, getRelatedProducts } from '@/data/catalog'
 import { ProductCard } from '@/components/ProductCard'
 import { getCurrentUser, toggleFavorite, getFavoriteProductIds, CustomerUser } from '@/lib/auth'
+import { addToCart, WHATSAPP_CONTACTS } from '@/lib/cart'
+import { applyDiscount } from '@/lib/promo'
 import { AuthModal } from '@/components/AuthModal'
 
 export const Route = createFileRoute('/catalogo/$productSlug')({
@@ -53,18 +58,11 @@ function ProductPage() {
           },
         ]
 
-  const whatsappContacts = [
-    {
-      name: 'Tiago Costa',
-      role: 'Modelação & Produção 3D',
-      phone: '351916175751',
-    },
-    {
-      name: 'Inês Costa',
-      role: 'Atendimento & Encomendas',
-      phone: '351911565367',
-    },
-  ]
+  // Os contactos vêm de src/lib/cart.ts (iguais em todo o site)
+  const whatsappContacts = WHATSAPP_CONTACTS
+
+  // Promoção (da peça ou da categoria), já calculada em catalog.ts
+  const discount = Number(currentProduct.discountPercent || 0)
 
   const [selectedVariant, setSelectedVariant] = useState(variants[0])
   const [selectedColor, setSelectedColor] = useState(
@@ -81,6 +79,13 @@ function ProductPage() {
   // Gestão de favoritos na página de detalhe
   const [isFav, setIsFav] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
+
+  // Carrinho
+  // pendingAction: o que fazer depois de a pessoa iniciar sessão
+  const [pendingAction, setPendingAction] = useState<'favorite' | 'cart'>('favorite')
+  const [addingToCart, setAddingToCart] = useState(false)
+  const [cartAdded, setCartAdded] = useState(false)
+  const [cartError, setCartError] = useState('')
 
   const checkFavStatus = async () => {
     const user = getCurrentUser()
@@ -109,6 +114,8 @@ function ProductPage() {
     setSelectedImage(currentProduct.images?.[0]?.src ?? '')
     setSelectedContact(null)
     setQuantity(1)
+    setCartAdded(false)
+    setCartError('')
 
     checkFavStatus()
 
@@ -127,6 +134,7 @@ function ProductPage() {
   const handleToggleFavorite = async () => {
     const user = getCurrentUser()
     if (!user) {
+      setPendingAction('favorite')
       setShowAuthModal(true)
       return
     }
@@ -135,22 +143,69 @@ function ProductPage() {
     setIsFav(nextState)
   }
 
+  const addCurrentToCart = async (user: CustomerUser) => {
+    setAddingToCart(true)
+    setCartError('')
+    setCartAdded(false)
+
+    try {
+      await addToCart(user.handle, {
+        item_type: 'product',
+        product_id: String(currentProduct.id),
+        product_slug: currentProduct.slug ?? null,
+        name: currentProduct.name,
+        variant_name: selectedVariant.name ?? null,
+        color_name: selectedColor?.name ?? null,
+        unit_price: unitPrice,
+        quantity,
+        image: currentProduct.images?.[0]?.src ?? null,
+      })
+      setCartAdded(true)
+    } catch (err) {
+      console.error('Erro ao adicionar ao carrinho:', err)
+      setCartError('Não foi possível adicionar ao carrinho. Tenta outra vez.')
+    } finally {
+      setAddingToCart(false)
+    }
+  }
+
+  const handleAddToCart = async () => {
+    const user = getCurrentUser()
+    if (!user) {
+      setPendingAction('cart')
+      setShowAuthModal(true)
+      return
+    }
+
+    await addCurrentToCart(user)
+  }
+
   const handleLoginSuccess = async (user: CustomerUser) => {
+    if (pendingAction === 'cart') {
+      await addCurrentToCart(user)
+      return
+    }
+
     const nextState = await toggleFavorite(user.handle, String(currentProduct.id))
     setIsFav(nextState)
   }
+
+  // Preços: normal e com promoção (por unidade e total)
+  const originalUnitPrice = Number(selectedVariant.price)
+  const unitPrice = applyDiscount(originalUnitPrice, discount)
+  const hasDiscount = discount > 0 && unitPrice < originalUnitPrice
+  const originalTotal = originalUnitPrice * quantity
+  const totalPrice = unitPrice * quantity
 
   const messageText = encodeURIComponent(
     `Olá BroMinds! Gostava de encomendar a peça "${currentProduct.name}" no tamanho ${
       selectedVariant.name
     }${
       selectedColor ? ` e na cor ${selectedColor.name}` : ''
-    }. Quantidade: ${quantity}. (Preço: ${(
-      selectedVariant.price * quantity
-    ).toFixed(2)} €)`,
+    }. Quantidade: ${quantity}. (Preço: ${totalPrice.toFixed(2)} €${
+      hasDiscount ? ` — em promoção −${Math.round(discount)}%` : ''
+    })`,
   )
-
-  const totalPrice = selectedVariant.price * quantity
 
   return (
     <>
@@ -256,16 +311,33 @@ function ProductPage() {
                   </p>
                 )}
 
-                <div className="mt-6 flex items-end gap-2">
-                  <span className="text-3xl font-extrabold text-ink">
-                    {totalPrice.toFixed(2)} €
-                  </span>
-
-                  {quantity > 1 && (
-                    <span className="pb-1 text-sm text-ink-3">
-                      {selectedVariant.price.toFixed(2)} € / unidade
-                    </span>
+                <div className="mt-6">
+                  {hasDiscount && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg text-ink-3 line-through">
+                        {originalTotal.toFixed(2)} €
+                      </span>
+                      <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                        −{Math.round(discount)}%
+                      </span>
+                    </div>
                   )}
+
+                  <div className="flex items-end gap-2">
+                    <span
+                      className={`text-3xl font-extrabold ${
+                        hasDiscount ? 'text-red-600' : 'text-ink'
+                      }`}
+                    >
+                      {totalPrice.toFixed(2)} €
+                    </span>
+
+                    {quantity > 1 && (
+                      <span className="pb-1 text-sm text-ink-3">
+                        {unitPrice.toFixed(2)} € / unidade
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* BOTÃO DE DESTAQUE: FAVORITOS */}
@@ -341,9 +413,20 @@ function ProductPage() {
                                 </p>
                               )}
                             </div>
-                            <span className="text-sm font-bold text-ink">
-                              {variant.price.toFixed(2)} €
-                            </span>
+                            {hasDiscount ? (
+                              <span className="flex flex-col items-end leading-tight">
+                                <span className="text-xs text-ink-3 line-through">
+                                  {Number(variant.price).toFixed(2)} €
+                                </span>
+                                <span className="text-sm font-bold text-red-600">
+                                  {applyDiscount(variant.price, discount).toFixed(2)} €
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-sm font-bold text-ink">
+                                {Number(variant.price).toFixed(2)} €
+                              </span>
+                            )}
                           </button>
                         )
                       })}
@@ -408,6 +491,47 @@ function ProductPage() {
                   </div>
                 </div>
 
+                {/* Adicionar ao carrinho */}
+                <button
+                  type="button"
+                  onClick={() => void handleAddToCart()}
+                  disabled={addingToCart}
+                  className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-ink px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember active:scale-[0.99] disabled:opacity-60"
+                >
+                  {addingToCart ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <ShoppingCart className="h-5 w-5" />
+                  )}
+                  {addingToCart ? 'A adicionar...' : 'Adicionar ao carrinho'}
+                </button>
+
+                {cartAdded && (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm">
+                    <span className="flex items-center gap-2 font-semibold text-green-700">
+                      <CheckCircle className="h-4 w-4" />
+                      Adicionado ao carrinho
+                    </span>
+                    <Link
+                      to="/carrinho"
+                      className="text-xs font-bold text-green-700 underline hover:text-green-800"
+                    >
+                      Ver carrinho
+                    </Link>
+                  </div>
+                )}
+
+                {cartError && (
+                  <p className="mt-3 text-sm font-medium text-red-600">{cartError}</p>
+                )}
+
+                {/* Separador */}
+                <div className="my-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-ink-3">
+                  <span className="h-px flex-1 bg-paper-3" />
+                  ou encomenda já
+                  <span className="h-px flex-1 bg-paper-3" />
+                </div>
+
                 {/* Contactos */}
                 <div className="mb-4">
                   <h2 className="mb-3 text-sm font-bold text-ink">Contactar</h2>
@@ -448,7 +572,7 @@ function ProductPage() {
                       className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
                     >
                       <MessageCircle className="h-5 w-5" />
-                      Pedir esta peça
+                      Pedir só esta peça pelo WhatsApp
                     </a>
                     <p className="mt-3 text-center text-xs leading-5 text-ink-3">
                       A mensagem será enviada diretamente para o WhatsApp de{' '}
