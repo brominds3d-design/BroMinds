@@ -88,6 +88,7 @@ export async function getProducts(): Promise<Array<ProductWithCategory>> {
     supabase
       .from('products')
       .select('*')
+      .eq('published', true) // os rascunhos só aparecem no admin
       .order('created_at', { ascending: false }),
   ])
 
@@ -108,6 +109,7 @@ export async function getProductBySlug(
       .from('products')
       .select('*')
       .eq('slug', slug)
+      .eq('published', true) // rascunho = página não encontrada
       .single(),
   ])
 

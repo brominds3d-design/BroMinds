@@ -19,8 +19,17 @@ import {
   Gift,
   Search,
   Percent,
+  Wand2,
 } from 'lucide-react'
 import { applyDiscount, discountSource, effectiveDiscount } from '@/lib/promo'
+import {
+  COST_SETTINGS,
+  CostInfo,
+  calculateCosts,
+  emptyCostInfo,
+  marginPercent,
+  normalizeCostInfo,
+} from '@/lib/costs'
 
 export const Route = createFileRoute('/admin')({
   component: AdminPage,
@@ -47,6 +56,115 @@ const PACK_SIZES = [
   { value: 'M', label: 'Médio (M)' },
   { value: 'L', label: 'Grande (L)' },
 ] as const
+
+// Cores rápidas para o fundo novo das fotos
+const BG_PRESETS = [
+  { name: 'Branco', hex: '#ffffff' },
+  { name: 'Creme', hex: '#f7f3ec' },
+  { name: 'Cinzento claro', hex: '#ececec' },
+  { name: 'Preto', hex: '#111111' },
+  { name: 'Vermelho', hex: '#c62828' },
+]
+
+const BG_COLOR_STORAGE_KEY = 'brominds_admin_bg_color'
+
+// ============================================================
+// CUSTOS — conversão entre o formulário (texto) e o Supabase (números)
+// ============================================================
+
+type CostForm = {
+  weight: string
+  hours: string
+  filamentPrice: string
+  markup: string
+  extraCost: string
+  extraNote: string
+  notes: string
+  includeFailures: boolean
+  includePackaging: boolean
+  includeChain: boolean
+}
+
+const numToText = (value: number | null | undefined) =>
+  value === null || value === undefined ? '' : String(value).replace('.', ',')
+
+const textToNum = (text: string): number | null => {
+  const clean = text.trim().replace(',', '.')
+  if (!clean) return null
+  const value = Number(clean)
+  return Number.isFinite(value) ? value : null
+}
+
+function costInfoToForm(info: CostInfo): CostForm {
+  return {
+    weight: numToText(info.weight_g),
+    hours: numToText(info.print_hours),
+    filamentPrice: numToText(info.filament_price_kg),
+    markup: numToText(info.markup),
+    extraCost: numToText(info.extra_cost),
+    extraNote: info.extra_note || '',
+    notes: info.notes || '',
+    includeFailures: info.include_failures,
+    includePackaging: info.include_packaging,
+    includeChain: info.include_chain,
+  }
+}
+
+function costFormToInfo(form: CostForm): CostInfo {
+  return {
+    weight_g: textToNum(form.weight),
+    print_hours: textToNum(form.hours),
+    filament_price_kg: textToNum(form.filamentPrice),
+    markup: textToNum(form.markup),
+    include_failures: form.includeFailures,
+    include_packaging: form.includePackaging,
+    include_chain: form.includeChain,
+    extra_cost: textToNum(form.extraCost),
+    extra_note: form.extraNote.trim(),
+    notes: form.notes.trim(),
+  }
+}
+
+const euro = (value: number) => `${value.toFixed(2).replace('.', ',')} €`
+
+/** Interruptor (switch) igual ao da app de encomendas */
+function Toggle({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  label: string
+  hint?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center justify-between gap-3 py-2 text-left"
+    >
+      <span>
+        <span className="block text-sm text-ink">{label}</span>
+        {hint && <span className="block text-[11px] text-ink-3">{hint}</span>}
+      </span>
+      <span
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+          checked ? 'bg-ember' : 'bg-paper-3'
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            checked ? 'translate-x-5' : 'translate-x-0.5'
+          }`}
+        />
+      </span>
+    </button>
+  )
+}
 
 type PackType = 'base' | 'placa' | 'decorativo'
 type PackSize = 'S' | 'M' | 'L'
@@ -184,6 +302,12 @@ function AdminPage() {
   >([])
   const [featured, setFeatured] = useState(false)
 
+  // Publicação: false = rascunho (só aparece no admin)
+  const [published, setPublished] = useState(false)
+
+  // Custos de produção (os números ficam em texto enquanto escreves)
+  const [costForm, setCostForm] = useState(() => costInfoToForm(emptyCostInfo()))
+
   const [availablePalette, setAvailablePalette] = useState<
     Array<{ id?: string; name: string; hex: string }>
   >([])
@@ -202,6 +326,113 @@ function AdminPage() {
 
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Remoção de fundo das fotos
+  const [bgColor, setBgColor] = useState('#ffffff')
+  const [bgRemovingIdx, setBgRemovingIdx] = useState<number | null>(null)
+  const [bgProgress, setBgProgress] = useState('')
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(BG_COLOR_STORAGE_KEY)
+      if (saved) setBgColor(saved)
+    } catch {
+      // sem acesso ao localStorage: fica o branco
+    }
+  }, [])
+
+  const changeBgColor = (color: string) => {
+    setBgColor(color)
+    try {
+      localStorage.setItem(BG_COLOR_STORAGE_KEY, color)
+    } catch {
+      // ignora
+    }
+  }
+
+  /**
+   * Tira o fundo de uma foto e mete a cor escolhida.
+   * Corre tudo no browser (sem custos). A foto nova é carregada para o
+   * Supabase e substitui a antiga na lista; só fica gravada na peça quando
+   * carregas em «Publicar» / «Atualizar Peça».
+   */
+  const removeImageBackground = async (idx: number) => {
+    const image = imagesList[idx]
+    if (!image) return
+
+    setBgRemovingIdx(idx)
+    setBgProgress('A preparar...')
+
+    try {
+      const response = await fetch(image.src)
+      if (!response.ok) throw new Error('Não foi possível abrir a foto.')
+      const original = await response.blob()
+
+      // Só carrega a biblioteca quando é mesmo precisa
+      const { removeBackground } = await import('@imgly/background-removal')
+
+      const cutout = await removeBackground(original, {
+        progress: (key: string, current: number, total: number) => {
+          if (key.startsWith('fetch')) {
+            const pct = total ? Math.round((current / total) * 100) : 0
+            setBgProgress(`A descarregar o modelo... ${pct}%`)
+          } else {
+            setBgProgress('A tirar o fundo...')
+          }
+        },
+      })
+
+      // Pinta o fundo com a cor escolhida e mete a peça por cima
+      const bitmap = await createImageBitmap(cutout)
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('O browser não conseguiu preparar a imagem.')
+
+      ctx.fillStyle = bgColor
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(bitmap, 0, 0)
+      bitmap.close()
+
+      const finalBlob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.9),
+      )
+      if (!finalBlob) throw new Error('Não foi possível criar a imagem final.')
+
+      setBgProgress('A guardar...')
+
+      const fileName = `${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 7)}-sem-fundo.jpg`
+      const filePath = `itens/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('produtos')
+        .upload(filePath, finalBlob, {
+          contentType: 'image/jpeg',
+          cacheControl: '3600',
+          upsert: true,
+        })
+
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage.from('produtos').getPublicUrl(filePath)
+
+      setImagesList((current) =>
+        current.map((item, i) =>
+          i === idx ? { ...item, src: data.publicUrl } : item,
+        ),
+      )
+    } catch (err: any) {
+      console.error('Erro ao tirar o fundo:', err)
+      alert('Erro ao tirar o fundo: ' + (err?.message || 'erro desconhecido.'))
+    } finally {
+      setBgRemovingIdx(null)
+      setBgProgress('')
+    }
+  }
 
   // Formulário de categoria
   const [editingCatId, setEditingCatId] = useState<string | null>(null)
@@ -676,6 +907,8 @@ function AdminPage() {
     setShortDesc(prod.short_description || '')
     setImagesList(Array.isArray(prod.images) ? prod.images : [])
     setFeatured(Boolean(prod.featured))
+    setPublished(prod.published !== false)
+    setCostForm(costInfoToForm(normalizeCostInfo(prod.cost_info)))
 
     setSelectedColors(
       prod.colors && prod.colors.length > 0
@@ -713,6 +946,8 @@ function AdminPage() {
     setShortDesc('')
     setImagesList([])
     setFeatured(false)
+    setPublished(false)
+    setCostForm(costInfoToForm(emptyCostInfo()))
 
     if (availablePalette.length > 0) {
       setSelectedColors([
@@ -827,6 +1062,8 @@ function AdminPage() {
       colors: selectedColors,
       variants,
       featured,
+      published,
+      cost_info: costFormToInfo(costForm),
     }
 
     try {
@@ -838,7 +1075,11 @@ function AdminPage() {
 
         if (error) throw error
 
-        setSuccess('Peça atualizada com sucesso!')
+        setSuccess(
+          published
+            ? 'Peça atualizada e publicada no site!'
+            : 'Peça atualizada (rascunho, não aparece no site).',
+        )
       } else {
         const { error } = await supabase
           .from('products')
@@ -846,7 +1087,11 @@ function AdminPage() {
 
         if (error) throw error
 
-        setSuccess('Peça criada com sucesso!')
+        setSuccess(
+          published
+            ? 'Peça criada e publicada no site!'
+            : 'Peça guardada como rascunho (não aparece no site).',
+        )
       }
 
       resetProductForm()
@@ -1342,32 +1587,102 @@ function AdminPage() {
               </button>
 
               {imagesList.length > 0 && (
-                <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {imagesList.map((img, idx) => (
-                    <div
-                      key={`${img.src}-${idx}`}
-                      className="relative aspect-square rounded-xl overflow-hidden border border-paper-3 bg-paper-2"
-                    >
-                      <img
-                        src={img.src}
-                        alt={img.alt}
-                        className="h-full w-full object-cover"
-                      />
+                <>
+                  {/* Cor de fundo para a remoção de fundo */}
+                  <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-paper-3 bg-paper-2/60 p-3">
+                    <span className="text-xs font-bold text-ink">
+                      Cor do fundo novo:
+                    </span>
 
+                    {BG_PRESETS.map((preset) => (
                       <button
+                        key={preset.hex}
                         type="button"
-                        onClick={() =>
-                          setImagesList((current) =>
-                            current.filter((_, i) => i !== idx),
-                          )
-                        }
-                        className="absolute top-1.5 right-1.5 p-1 rounded-full bg-ink/80 text-paper hover:bg-red-600 transition"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                        onClick={() => changeBgColor(preset.hex)}
+                        title={preset.name}
+                        className={`h-7 w-7 rounded-full border transition ${
+                          bgColor.toLowerCase() === preset.hex
+                            ? 'border-ember ring-2 ring-ember/30'
+                            : 'border-paper-3'
+                        }`}
+                        style={{ backgroundColor: preset.hex }}
+                      />
+                    ))}
+
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-ink-2"
+                      title="Escolher outra cor"
+                    >
+                      <input
+                        type="color"
+                        value={bgColor}
+                        onChange={(e) => changeBgColor(e.target.value)}
+                        className="h-7 w-9 cursor-pointer rounded border border-paper-3 bg-paper p-0.5"
+                      />
+                      Outra
+                    </label>
+
+                    <span className="ml-auto text-[11px] text-ink-3">
+                      A 1.ª vez demora mais (descarrega o modelo).
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {imagesList.map((img, idx) => {
+                      const processing = bgRemovingIdx === idx
+
+                      return (
+                        <div
+                          key={`${img.src}-${idx}`}
+                          className="relative aspect-square rounded-xl overflow-hidden border border-paper-3 bg-paper-2"
+                        >
+                          <img
+                            src={img.src}
+                            alt={img.alt}
+                            className="h-full w-full object-cover"
+                          />
+
+                          <button
+                            type="button"
+                            disabled={bgRemovingIdx !== null}
+                            onClick={() =>
+                              setImagesList((current) =>
+                                current.filter((_, i) => i !== idx),
+                              )
+                            }
+                            className="absolute top-1.5 right-1.5 p-1 rounded-full bg-ink/80 text-paper hover:bg-red-600 transition disabled:opacity-40"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={bgRemovingIdx !== null}
+                            onClick={() => void removeImageBackground(idx)}
+                            className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-center gap-1 rounded-lg bg-paper/90 px-2 py-1.5 text-[11px] font-bold text-ink shadow-sm backdrop-blur transition hover:bg-ember hover:text-paper disabled:opacity-40"
+                          >
+                            <Wand2 className="h-3.5 w-3.5" />
+                            Tirar fundo
+                          </button>
+
+                          {processing && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-ink/70 p-2 text-center">
+                              <Loader2 className="h-6 w-6 animate-spin text-paper" />
+                              <span className="text-[11px] font-semibold text-paper">
+                                {bgProgress || 'A processar...'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-ink-3">
+                    Depois de tirar o fundo, carrega em «Publicar» ou «Atualizar
+                    Peça» para guardar.
+                  </p>
+                </>
               )}
             </div>
 
@@ -1546,6 +1861,225 @@ function AdminPage() {
               </div>
             </div>
 
+            {/* ===== Custos de produção (só o admin vê) ===== */}
+            {(() => {
+              const costs = calculateCosts(costFormToInfo(costForm))
+              const currentPrice = Number(variants[0]?.price || 0)
+              const currentMargin = marginPercent(currentPrice, costs.totalCost)
+              const suggestedMargin = marginPercent(
+                costs.suggestedPrice,
+                costs.totalCost,
+              )
+              const updateCost = (field: keyof CostForm, value: string | boolean) =>
+                setCostForm((current) => ({ ...current, [field]: value }))
+
+              const inputClass =
+                'w-full rounded-xl border border-paper-3 bg-paper p-2.5 text-sm outline-none focus:border-ember'
+              const labelClass =
+                'block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1'
+
+              return (
+                <div className="rounded-2xl border border-paper-3 bg-paper-2/60 p-4 sm:p-5">
+                  <div className="mb-4">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-ink">
+                      Custos de produção
+                    </h3>
+                    <p className="text-[11px] text-ink-3">
+                      Só tu vês isto. Calcula o custo e sugere o preço, como no Excel.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div>
+                      <label className={labelClass}>Peso (g)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={costForm.weight}
+                        onChange={(e) => updateCost('weight', e.target.value)}
+                        placeholder="Ex: 70"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Tempo impr. (h)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={costForm.hours}
+                        onChange={(e) => updateCost('hours', e.target.value)}
+                        placeholder="Ex: 3,2"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Filamento (€/kg)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={costForm.filamentPrice}
+                        onChange={(e) => updateCost('filamentPrice', e.target.value)}
+                        placeholder={String(COST_SETTINGS.filamentPricePerKg)}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Markup (x)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={costForm.markup}
+                        onChange={(e) => updateCost('markup', e.target.value)}
+                        placeholder={String(COST_SETTINGS.markup)}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-paper-3 bg-paper px-4 py-1 divide-y divide-paper-3">
+                    <Toggle
+                      label="Incluir taxa de falhas de fabrico"
+                      hint={`+${Math.round(COST_SETTINGS.failureRate * 100)}% sobre material, luz e desgaste`}
+                      checked={costForm.includeFailures}
+                      onChange={(v) => updateCost('includeFailures', v)}
+                    />
+                    <Toggle
+                      label="Incluir custo de embalagem"
+                      hint={`+${euro(COST_SETTINGS.packaging)}`}
+                      checked={costForm.includePackaging}
+                      onChange={(v) => updateCost('includePackaging', v)}
+                    />
+                    <Toggle
+                      label="Tem corrente"
+                      hint={`+${euro(COST_SETTINGS.chain)} por peça`}
+                      checked={costForm.includeChain}
+                      onChange={(v) => updateCost('includeChain', v)}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[140px_1fr]">
+                    <div>
+                      <label className={labelClass}>Custo adicional (€)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={costForm.extraCost}
+                        onChange={(e) => updateCost('extraCost', e.target.value)}
+                        placeholder="0,00"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>O que é o custo adicional?</label>
+                      <input
+                        type="text"
+                        value={costForm.extraNote}
+                        onChange={(e) => updateCost('extraNote', e.target.value)}
+                        placeholder="Ex: vela LED, suporte, íman..."
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <label className={labelClass}>Notas internas</label>
+                    <input
+                      type="text"
+                      value={costForm.notes}
+                      onChange={(e) => updateCost('notes', e.target.value)}
+                      placeholder="Cor, link do MakerWorld, detalhes..."
+                      className={inputClass}
+                    />
+                  </div>
+
+                  {/* Resultado */}
+                  {costs.hasData ? (
+                    <div className="mt-4 rounded-xl border border-paper-3 bg-paper p-4">
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
+                        <span className="text-ink-3">Material</span>
+                        <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.material)}</span>
+                        <span className="text-ink-3">Eletricidade</span>
+                        <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.electricity)}</span>
+                        <span className="text-ink-3">Amortização</span>
+                        <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.amortization)}</span>
+                        <span className="text-ink-3">Fabrico c/ falhas</span>
+                        <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.manufacturing)}</span>
+                        {costs.packaging > 0 && (
+                          <>
+                            <span className="text-ink-3">Embalagem</span>
+                            <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.packaging)}</span>
+                          </>
+                        )}
+                        {costs.chain > 0 && (
+                          <>
+                            <span className="text-ink-3">Corrente</span>
+                            <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.chain)}</span>
+                          </>
+                        )}
+                        {costs.extra > 0 && (
+                          <>
+                            <span className="text-ink-3">Adicional</span>
+                            <span className="text-right font-semibold text-ink sm:text-left">{euro(costs.extra)}</span>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-1 gap-3 border-t border-paper-3 pt-3 sm:grid-cols-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wider text-ink-3">Custo total</p>
+                          <p className="text-lg font-extrabold text-ink">{euro(costs.totalCost)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wider text-ink-3">Preço sugerido</p>
+                          <p className="text-lg font-extrabold text-ember">
+                            {euro(costs.suggestedPrice)}
+                          </p>
+                          <p className="text-[11px] text-ink-3">
+                            Margem {suggestedMargin.toFixed(1).replace('.', ',')}%
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wider text-ink-3">Preço atual (1.º tamanho)</p>
+                          <p className="text-lg font-extrabold text-ink">{euro(currentPrice)}</p>
+                          <p
+                            className={`text-[11px] font-semibold ${
+                              currentMargin < 0
+                                ? 'text-red-600'
+                                : currentMargin < 50
+                                  ? 'text-amber-600'
+                                  : 'text-green-700'
+                            }`}
+                          >
+                            Margem {currentMargin.toFixed(1).replace('.', ',')}%
+                          </p>
+                        </div>
+                      </div>
+
+                      {Math.abs(currentPrice - costs.suggestedPrice) > 0.001 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVariants((current) =>
+                              current.map((v, i) =>
+                                i === 0 ? { ...v, price: costs.suggestedPrice } : v,
+                              ),
+                            )
+                          }
+                          className="mt-3 w-full rounded-lg bg-ember px-3 py-2 text-xs font-semibold text-paper hover:bg-ember-deep"
+                        >
+                          Usar o preço sugerido ({euro(costs.suggestedPrice)}) no 1.º tamanho
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-xs text-ink-3">
+                      Preenche o peso e o tempo de impressão para veres os custos.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+
             <div className="flex items-center gap-2 pt-2">
               <input
                 type="checkbox"
@@ -1562,6 +2096,26 @@ function AdminPage() {
               </label>
             </div>
 
+            {/* ===== Publicar ou guardar como rascunho ===== */}
+            <div
+              className={`rounded-2xl border px-4 py-2 ${
+                published
+                  ? 'border-green-300 bg-green-50'
+                  : 'border-amber-300 bg-amber-50'
+              }`}
+            >
+              <Toggle
+                label={published ? 'Publicado no site' : 'Rascunho (não aparece no site)'}
+                hint={
+                  published
+                    ? 'Os clientes veem esta peça no catálogo.'
+                    : 'Fica guardada só no admin, para testes ou para publicar mais tarde.'
+                }
+                checked={published}
+                onChange={setPublished}
+              />
+            </div>
+
             <button
               type="submit"
               disabled={loading || uploadingImage}
@@ -1569,9 +2123,13 @@ function AdminPage() {
             >
               {loading
                 ? 'A guardar...'
-                : editingId
-                  ? 'Atualizar Peça'
-                  : 'Publicar Peça'}
+                : published
+                  ? editingId
+                    ? 'Atualizar e publicar'
+                    : 'Publicar peça'
+                  : editingId
+                    ? 'Guardar rascunho'
+                    : 'Guardar como rascunho'}
             </button>
           </form>
 
@@ -1613,8 +2171,13 @@ function AdminPage() {
                     )}
 
                     <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-ink">
+                      <h4 className="text-sm font-bold text-ink flex flex-wrap items-center gap-2">
                         {prod.name}
+                        {prod.published === false && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                            Rascunho
+                          </span>
+                        )}
                       </h4>
 
                       <p className="text-xs text-ink-3 flex flex-wrap items-center gap-2 mt-0.5">
@@ -1629,6 +2192,28 @@ function AdminPage() {
                           {favoritesCounts[prod.id] || 0}
                         </span>
                       </p>
+
+                      {(() => {
+                        const costs = calculateCosts(normalizeCostInfo(prod.cost_info))
+                        if (!prod.cost_info || !costs.hasData) return null
+                        const margin = marginPercent(Number(prod.base_price || 0), costs.totalCost)
+                        return (
+                          <p className="text-[11px] text-ink-3 mt-0.5">
+                            Custo {euro(costs.totalCost)} · Sugerido {euro(costs.suggestedPrice)} ·{' '}
+                            <span
+                              className={
+                                margin < 0
+                                  ? 'font-semibold text-red-600'
+                                  : margin < 50
+                                    ? 'font-semibold text-amber-600'
+                                    : 'font-semibold text-green-700'
+                              }
+                            >
+                              Margem {margin.toFixed(1).replace('.', ',')}%
+                            </span>
+                          </p>
+                        )
+                      })()}
                     </div>
                   </div>
 

@@ -126,6 +126,7 @@ function PacksNatalPage() {
         )
         .eq('category_id', 'natal')
         .eq('pack_eligible', true)
+        .eq('published', true) // os rascunhos não entram nos packs
         .order('name', { ascending: true })
 
       if (queryError) {
