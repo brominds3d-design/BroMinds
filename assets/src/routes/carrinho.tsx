@@ -233,6 +233,12 @@ function CartPage() {
                             )}
 
                             {options && <p className="mt-0.5 text-xs text-ink-3">{options}</p>}
+
+                            {item.discount_code && (
+                              <span className="mt-1 inline-block rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600">
+                                🎟️ Código {item.discount_code}
+                              </span>
+                            )}
                           </div>
 
                           <button
@@ -269,7 +275,12 @@ function CartPage() {
                             <button
                               type="button"
                               onClick={() => void changeQuantity(item, item.quantity + 1)}
-                              disabled={busy}
+                              disabled={busy || Boolean(item.discount_code)}
+                              title={
+                                item.discount_code
+                                  ? 'O código vale só para 1 unidade'
+                                  : undefined
+                              }
                               className="flex h-full w-9 items-center justify-center text-ink-2 hover:bg-paper-2"
                               aria-label="Aumentar quantidade"
                             >
@@ -278,7 +289,17 @@ function CartPage() {
                           </div>
 
                           <div className="text-right">
-                            <p className="font-bold text-ink">
+                            {item.original_price != null &&
+                              item.original_price > item.unit_price && (
+                                <p className="text-xs text-ink-3 line-through">
+                                  {money(item.original_price * item.quantity)}
+                                </p>
+                              )}
+                            <p
+                              className={`font-bold ${
+                                item.discount_code ? 'text-red-600' : 'text-ink'
+                              }`}
+                            >
                               {money(item.unit_price * item.quantity)}
                             </p>
                             {item.quantity > 1 && (

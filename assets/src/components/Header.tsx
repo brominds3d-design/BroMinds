@@ -1,9 +1,27 @@
 import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Menu, X, Sparkles, MessageCircle, Heart, User, LogOut, ShoppingCart } from 'lucide-react'
+import {
+  Menu,
+  X,
+  Sparkles,
+  MessageCircle,
+  Heart,
+  User,
+  LogOut,
+  ShoppingCart,
+  Paintbrush,
+  Settings,
+} from 'lucide-react'
 import { LogoMark, Wordmark } from './Logo'
 import { site } from '@/data/site'
-import { getCurrentUser, saveCurrentUser, CustomerUser } from '@/lib/auth'
+import {
+  getCurrentUser,
+  saveCurrentUser,
+  refreshCurrentUser,
+  isAdmin,
+  canManagePaintings,
+  CustomerUser,
+} from '@/lib/auth'
 import { getCartCount } from '@/lib/cart'
 import { AuthModal } from './AuthModal'
 
@@ -38,6 +56,8 @@ export function Header() {
 
   useEffect(() => {
     updateAuth()
+    // Confirma o papel (cliente / admin / pintora) no Supabase
+    void refreshCurrentUser()
     const onCartChange = () => void updateCartCount()
 
     window.addEventListener('auth_changed', updateAuth)
@@ -90,6 +110,26 @@ export function Header() {
 
           {/* Ações Rápidas à Direita */}
           <div className="hidden items-center gap-2.5 md:flex">
+            {/* Áreas reservadas (só aparecem a quem tem acesso) */}
+            {isAdmin(user) && (
+              <Link
+                to="/admin"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-paper-3 bg-paper text-ink transition hover:border-ember hover:text-ember active:scale-95 shadow-sm"
+                title="Admin"
+              >
+                <Settings className="h-4 w-4" />
+              </Link>
+            )}
+            {canManagePaintings(user) && (
+              <Link
+                to="/pinturas"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-paper-3 bg-paper text-ink transition hover:border-ember hover:text-ember active:scale-95 shadow-sm"
+                title="Pinturas"
+              >
+                <Paintbrush className="h-4 w-4" />
+              </Link>
+            )}
+
             {/* Botão de Favoritos */}
             <Link
               to="/favoritos"
@@ -132,7 +172,7 @@ export function Header() {
                 className="flex items-center gap-1.5 rounded-xl border border-paper-3 bg-paper px-3 py-2 text-xs font-semibold text-ink shadow-sm transition hover:border-ember hover:text-ember active:scale-95"
               >
                 <User className="h-3.5 w-3.5 text-ember" />
-                <span>Entrar com @</span>
+                <span>Entrar</span>
               </button>
             )}
 
@@ -224,6 +264,30 @@ export function Header() {
               </span>
             </Link>
 
+            {/* Áreas reservadas no Mobile */}
+            {isAdmin(user) && (
+              <Link
+                to="/admin"
+                className="flex items-center justify-between rounded-xl px-3 py-3 font-display text-base font-bold text-ink hover:bg-paper-2 hover:text-ember transition"
+              >
+                <span className="flex items-center gap-2">
+                  <Settings className="h-4 w-4 text-ember" />
+                  Admin
+                </span>
+              </Link>
+            )}
+            {canManagePaintings(user) && (
+              <Link
+                to="/pinturas"
+                className="flex items-center justify-between rounded-xl px-3 py-3 font-display text-base font-bold text-ink hover:bg-paper-2 hover:text-ember transition"
+              >
+                <span className="flex items-center gap-2">
+                  <Paintbrush className="h-4 w-4 text-ember" />
+                  Pinturas
+                </span>
+              </Link>
+            )}
+
             {/* Link para o Carrinho no Mobile */}
             <Link
               to="/carrinho"
@@ -267,7 +331,7 @@ export function Header() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-paper-3 bg-paper py-3 text-sm font-semibold text-ink shadow-sm transition hover:border-ember"
               >
                 <User className="h-4 w-4 text-ember" />
-                Entrar com @username
+                Entrar com e-mail
               </button>
             )}
 

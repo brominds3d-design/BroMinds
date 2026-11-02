@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { releaseDiscountCode } from './discountCodes'
 
 /**
  * Carrinho da BroMinds.
@@ -23,6 +24,10 @@ export interface CartItem {
   quantity: number
   image: string | null
   details: string[]
+  /** Código de desconto usado nesta peça (a peça fica com quantidade 1) */
+  discount_code: string | null
+  /** Preço antes do código, para mostrar riscado */
+  original_price: number | null
   created_at: string
 }
 
@@ -37,6 +42,8 @@ export interface NewCartItem {
   quantity: number
   image?: string | null
   details?: string[]
+  discount_code?: string | null
+  original_price?: number | null
 }
 
 /** Contactos para onde a encomenda pode ser enviada */
@@ -109,6 +116,8 @@ export async function getCartItems(handle: string): Promise<CartItem[]> {
     unit_price: Number(row.unit_price),
     quantity: Number(row.quantity),
     details: Array.isArray(row.details) ? row.details : [],
+    discount_code: row.discount_code ?? null,
+    original_price: row.original_price != null ? Number(row.original_price) : null,
   }))
 }
 
@@ -134,14 +143,17 @@ export async function addToCart(handle: string, item: NewCartItem) {
   const itemType = item.item_type ?? 'product'
   const variantName = item.variant_name ?? null
   const colorName = item.color_name ?? null
+  const discountCode = item.discount_code ?? null
 
-  if (itemType === 'product' && item.product_id) {
+  // Peças com código nunca se juntam a outras (ficam sempre com quantidade 1)
+  if (itemType === 'product' && item.product_id && !discountCode) {
     let query = supabase
       .from('cart_items')
       .select('id, quantity')
       .eq('user_handle', handle)
       .eq('item_type', 'product')
       .eq('product_id', item.product_id)
+      .is('discount_code', null)
 
     query = variantName
       ? query.eq('variant_name', variantName)
@@ -181,9 +193,11 @@ export async function addToCart(handle: string, item: NewCartItem) {
       variant_name: variantName,
       color_name: colorName,
       unit_price: Number(item.unit_price),
-      quantity: Math.min(MAX_QUANTITY, Math.max(1, item.quantity)),
+      quantity: discountCode ? 1 : Math.min(MAX_QUANTITY, Math.max(1, item.quantity)),
       image: item.image ?? null,
       details: item.details ?? [],
+      discount_code: discountCode,
+      original_price: item.original_price ?? null,
     },
   ])
 
@@ -206,9 +220,25 @@ export async function updateCartQuantity(itemId: string, quantity: number) {
   notifyCartChanged()
 }
 
+/** Remove a peça; se tinha código de desconto, o código volta a ficar livre */
 export async function removeCartItem(itemId: string) {
+  const { data: item } = await supabase
+    .from('cart_items')
+    .select('discount_code')
+    .eq('id', itemId)
+    .maybeSingle()
+
   const { error } = await supabase.from('cart_items').delete().eq('id', itemId)
   if (error) throw error
+
+  if (item?.discount_code) {
+    try {
+      await releaseDiscountCode(item.discount_code)
+    } catch (err) {
+      console.error('Não foi possível libertar o código:', err)
+    }
+  }
+
   notifyCartChanged()
 }
 
@@ -243,6 +273,14 @@ export function buildCartMessage(
     if (options) lines.push(`   ${options}`)
 
     item.details.forEach((detail) => lines.push(`   • ${detail}`))
+
+    if (item.discount_code) {
+      lines.push(
+        `   🎟️ Código ${item.discount_code}${
+          item.original_price ? ` (antes ${money(item.original_price)})` : ''
+        }`,
+      )
+    }
 
     lines.push(
       `   ${item.quantity} × ${money(item.unit_price)} = ${money(

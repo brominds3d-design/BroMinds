@@ -2,6 +2,15 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
+  CustomerUser,
+  UserRole,
+  getCurrentUser,
+  isAdmin,
+  refreshCurrentUser,
+  setProfileRole,
+} from '@/lib/auth'
+import { AuthModal } from '@/components/AuthModal'
+import {
   Plus,
   Trash2,
   CheckCircle,
@@ -20,7 +29,19 @@ import {
   Search,
   Percent,
   Wand2,
+  Ticket,
+  Copy,
+  RotateCcw,
 } from 'lucide-react'
+import {
+  DiscountCode,
+  DiscountKind,
+  createDiscountCode,
+  deleteDiscountCode,
+  describeCode,
+  listDiscountCodes,
+  releaseDiscountCode,
+} from '@/lib/discountCodes'
 import { applyDiscount, discountSource, effectiveDiscount } from '@/lib/promo'
 import {
   COST_SETTINGS,
@@ -256,10 +277,120 @@ async function processImage(file: File): Promise<Blob> {
   return blobToProcess
 }
 
+/**
+ * Só entra quem tem o papel "admin".
+ * Os outros veem uma página de acesso reservado.
+ */
 function AdminPage() {
+  const [user, setUser] = useState<CustomerUser | null>(null)
+  const [checking, setChecking] = useState(true)
+  const [showAuth, setShowAuth] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      setUser(getCurrentUser())
+      setUser(await refreshCurrentUser())
+      setChecking(false)
+    }
+    void load()
+
+    const onAuth = () => setUser(getCurrentUser())
+    window.addEventListener('auth_changed', onAuth)
+    return () => window.removeEventListener('auth_changed', onAuth)
+  }, [])
+
+  if (checking) {
+    return <div className="py-24 text-center text-sm text-ink-3">A carregar...</div>
+  }
+
+  if (!user || !isAdmin(user)) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-4 py-16 text-center">
+        <h1 className="text-2xl font-extrabold text-ink">Área reservada</h1>
+        <p className="mt-2 text-sm text-ink-3">
+          {user
+            ? 'A tua conta não tem acesso ao painel de gestão.'
+            : 'Entra com o teu e-mail para acederes ao painel.'}
+        </p>
+        {!user && (
+          <button
+            type="button"
+            onClick={() => setShowAuth(true)}
+            className="mt-6 rounded-xl bg-ember px-6 py-2.5 text-sm font-semibold text-paper hover:bg-ember-deep"
+          >
+            Entrar
+          </button>
+        )}
+        <AuthModal
+          isOpen={showAuth}
+          onClose={() => setShowAuth(false)}
+          onSuccess={(u) => setUser(u)}
+        />
+      </div>
+    )
+  }
+
+  return <AdminDashboard currentAdmin={user} />
+}
+
+function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'products' | 'categories' | 'christmas-packs' | 'promotions'
+    'overview' | 'products' | 'categories' | 'christmas-packs' | 'promotions' | 'codes'
   >('overview')
+
+  // Códigos de desconto
+  const [codesList, setCodesList] = useState<DiscountCode[]>([])
+  const [codeKind, setCodeKind] = useState<DiscountKind>('percent')
+  const [codeValue, setCodeValue] = useState('10')
+  const [codeNote, setCodeNote] = useState('')
+  const [codeBusy, setCodeBusy] = useState(false)
+  const [newCode, setNewCode] = useState<DiscountCode | null>(null)
+  const [copiedCode, setCopiedCode] = useState('')
+  const [codesError, setCodesError] = useState('')
+
+  const loadCodes = async () => {
+    try {
+      setCodesList(await listDiscountCodes())
+      setCodesError('')
+    } catch (err: any) {
+      setCodesError(err?.message || 'Não foi possível carregar os códigos.')
+    }
+  }
+
+  const handleGenerateCode = async () => {
+    const value = Number(codeValue.replace(',', '.'))
+    if (!Number.isFinite(value) || value <= 0 || (codeKind === 'percent' && value > 90)) {
+      setCodesError(
+        codeKind === 'percent'
+          ? 'Indica uma percentagem entre 1 e 90.'
+          : 'Indica um valor em euros maior que 0.',
+      )
+      return
+    }
+
+    setCodeBusy(true)
+    setCodesError('')
+    try {
+      const created = await createDiscountCode(codeKind, value, codeNote)
+      setNewCode(created)
+      setCodeNote('')
+      await loadCodes()
+    } catch (err: any) {
+      setCodesError(err?.message || 'Não foi possível gerar o código.')
+    } finally {
+      setCodeBusy(false)
+    }
+  }
+
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopiedCode(code)
+      setTimeout(() => setCopiedCode(''), 1500)
+    } catch {
+      prompt('Copia o código:', code)
+    }
+  }
 
   // Dados globais
   const [productsList, setProductsList] = useState<any[]>([])
@@ -1333,6 +1464,23 @@ function AdminPage() {
           <Percent className="h-4 w-4" />
           Promoções ({productsOnPromo})
         </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('codes')
+            setNewCode(null)
+            void loadCodes()
+          }}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition ${
+            activeTab === 'codes'
+              ? 'border-ember text-ember'
+              : 'border-transparent text-ink-2 hover:text-ink'
+          }`}
+        >
+          <Ticket className="h-4 w-4" />
+          Códigos
+        </button>
       </div>
 
       {/* Mensagem de sucesso geral */}
@@ -1412,9 +1560,9 @@ function AdminPage() {
                   {usersList.map((u) => (
                     <div
                       key={u.id}
-                      className="py-2.5 flex items-center justify-between text-xs"
+                      className="py-2.5 flex items-center justify-between gap-3 text-xs"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <span className="font-bold text-ink">
                           @{u.handle}
                         </span>
@@ -1424,11 +1572,47 @@ function AdminPage() {
                             ({u.display_name})
                           </span>
                         )}
+
+                        <p className="truncate text-[11px] text-ink-3">
+                          {u.email || 'sem e-mail'} ·{' '}
+                          {new Date(u.created_at).toLocaleDateString('pt-PT')}
+                        </p>
                       </div>
 
-                      <span className="text-[11px] text-ink-3">
-                        {new Date(u.created_at).toLocaleDateString('pt-PT')}
-                      </span>
+                      {/* Papel: cliente / pintora / admin */}
+                      <select
+                        value={u.role || 'customer'}
+                        disabled={u.handle === currentAdmin.handle}
+                        title={
+                          u.handle === currentAdmin.handle
+                            ? 'Não podes mudar o teu próprio papel'
+                            : 'Mudar papel'
+                        }
+                        onChange={async (e) => {
+                          const role = e.target.value as UserRole
+                          try {
+                            await setProfileRole(u.id, role)
+                            setUsersList((current) =>
+                              current.map((item) =>
+                                item.id === u.id ? { ...item, role } : item,
+                              ),
+                            )
+                          } catch (err: any) {
+                            alert('Erro ao mudar o papel: ' + (err?.message || ''))
+                          }
+                        }}
+                        className={`shrink-0 rounded-lg border px-2 py-1 text-[11px] font-semibold outline-none disabled:opacity-60 ${
+                          u.role === 'admin'
+                            ? 'border-ember bg-ember/10 text-ember'
+                            : u.role === 'painter'
+                              ? 'border-purple-300 bg-purple-50 text-purple-700'
+                              : 'border-paper-3 bg-paper text-ink-2'
+                        }`}
+                      >
+                        <option value="customer">Cliente</option>
+                        <option value="painter">Pintora</option>
+                        <option value="admin">Admin</option>
+                      </select>
                     </div>
                   ))}
                 </div>
@@ -3165,6 +3349,219 @@ function AdminPage() {
                 )
               })}
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* ========================================================
+          ABA 6: CÓDIGOS DE DESCONTO
+      ========================================================= */}
+      {activeTab === 'codes' && (
+        <div className="space-y-8">
+          {/* Gerar código */}
+          <div className="bg-paper p-6 rounded-2xl border border-paper-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-3 rounded-xl bg-red-50 text-red-600">
+                <Ticket className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-extrabold text-ink">Códigos de desconto</h2>
+                <p className="mt-1 text-sm text-ink-3">
+                  Cada código só pode ser usado uma vez e vale para 1 unidade de
+                  uma peça. O cliente põe-no na página da peça. Não acumula com
+                  promoções: fica o melhor dos dois.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-[auto_120px_1fr_auto] sm:items-end">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                  Tipo
+                </label>
+                <div className="flex overflow-hidden rounded-xl border border-paper-3">
+                  {(['percent', 'amount'] as const).map((kind) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => setCodeKind(kind)}
+                      className={`px-4 py-2.5 text-sm font-semibold transition ${
+                        codeKind === kind
+                          ? 'bg-ink text-paper'
+                          : 'bg-paper text-ink-2 hover:bg-paper-2'
+                      }`}
+                    >
+                      {kind === 'percent' ? '%' : '€'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                  {codeKind === 'percent' ? 'Desconto (%)' : 'Desconto (€)'}
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={codeValue}
+                  onChange={(e) => setCodeValue(e.target.value)}
+                  className="w-full rounded-xl border border-paper-3 bg-paper-2 p-2.5 text-sm outline-none focus:border-ember"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                  Para quem (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={codeNote}
+                  onChange={(e) => setCodeNote(e.target.value)}
+                  placeholder="Ex.: Ana — compensação pelo atraso"
+                  className="w-full rounded-xl border border-paper-3 bg-paper-2 p-2.5 text-sm outline-none focus:border-ember"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleGenerateCode()}
+                disabled={codeBusy}
+                className="flex items-center justify-center gap-2 rounded-xl bg-ember px-5 py-2.5 text-sm font-semibold text-paper hover:bg-ember-deep disabled:opacity-50"
+              >
+                {codeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Gerar código
+              </button>
+            </div>
+
+            {codesError && (
+              <p className="mt-3 text-sm font-semibold text-red-600">{codesError}</p>
+            )}
+
+            {newCode && (
+              <div className="mt-5 flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-ember bg-ember/5 p-6 text-center">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-3">
+                  Código novo · {describeCode(newCode)}
+                </p>
+                <p className="font-mono text-3xl font-extrabold tracking-widest text-ink">
+                  {newCode.code}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void copyCode(newCode.code)}
+                  className="flex items-center gap-2 rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-paper hover:bg-ember"
+                >
+                  <Copy className="h-4 w-4" />
+                  {copiedCode === newCode.code ? 'Copiado!' : 'Copiar código'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Lista */}
+          <section>
+            <h3 className="text-xl font-bold text-ink mb-4">
+              Códigos criados ({codesList.length}) ·{' '}
+              <span className="text-green-700">
+                {codesList.filter((c) => !c.used_at).length} disponíveis
+              </span>
+            </h3>
+
+            {codesList.length === 0 ? (
+              <p className="rounded-xl border border-paper-3 bg-paper p-6 text-center text-sm text-ink-3">
+                Ainda não criaste nenhum código.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {codesList.map((c) => {
+                  const used = Boolean(c.used_at)
+                  return (
+                    <div
+                      key={c.id}
+                      className={`flex flex-col gap-3 rounded-xl border bg-paper p-3.5 sm:flex-row sm:items-center sm:justify-between ${
+                        used ? 'border-paper-3 opacity-70' : 'border-green-300'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-base font-extrabold tracking-wider text-ink">
+                            {c.code}
+                          </span>
+                          <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600">
+                            {describeCode(c)}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                              used ? 'bg-paper-2 text-ink-3' : 'bg-green-100 text-green-700'
+                            }`}
+                          >
+                            {used ? 'Usado' : 'Disponível'}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-ink-3">
+                          {c.note && <>{c.note} · </>}
+                          Criado a {new Date(c.created_at).toLocaleDateString('pt-PT')}
+                          {used && (
+                            <>
+                              {' '}· Usado a {new Date(c.used_at!).toLocaleDateString('pt-PT')}
+                              {c.used_by && <> por @{c.used_by}</>}
+                              {c.used_on && <> em «{c.used_on}»</>}
+                            </>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 sm:shrink-0">
+                        {!used && (
+                          <button
+                            type="button"
+                            onClick={() => void copyCode(c.code)}
+                            className="flex items-center gap-1.5 rounded-lg border border-paper-3 px-3 py-2 text-xs font-semibold text-ink hover:bg-paper-2"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            {copiedCode === c.code ? 'Copiado!' : 'Copiar'}
+                          </button>
+                        )}
+                        {used && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!confirm(`Reativar ${c.code}? Volta a poder ser usado.`)) return
+                              try {
+                                await releaseDiscountCode(c.code)
+                                await loadCodes()
+                              } catch (err: any) {
+                                alert('Erro: ' + (err?.message || ''))
+                              }
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg border border-paper-3 px-3 py-2 text-xs font-semibold text-ink hover:bg-paper-2"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Reativar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!confirm(`Apagar o código ${c.code}?`)) return
+                            try {
+                              await deleteDiscountCode(c.id)
+                              await loadCodes()
+                            } catch (err: any) {
+                              alert('Erro: ' + (err?.message || ''))
+                            }
+                          }}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                          title="Apagar"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </section>
         </div>
       )}

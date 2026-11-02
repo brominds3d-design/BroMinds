@@ -11,12 +11,21 @@ import {
   CheckCircle,
   Loader2,
   Heart,
+  Ticket,
+  X,
 } from 'lucide-react'
 import { getProductBySlug, getRelatedProducts } from '@/data/catalog'
 import { ProductCard } from '@/components/ProductCard'
 import { getCurrentUser, toggleFavorite, getFavoriteProductIds, CustomerUser } from '@/lib/auth'
 import { addToCart, WHATSAPP_CONTACTS } from '@/lib/cart'
 import { applyDiscount } from '@/lib/promo'
+import {
+  ValidCode,
+  checkDiscountCode,
+  describeCode,
+  priceWithCode,
+  redeemDiscountCode,
+} from '@/lib/discountCodes'
 import { AuthModal } from '@/components/AuthModal'
 
 export const Route = createFileRoute('/catalogo/$productSlug')({
@@ -87,6 +96,12 @@ function ProductPage() {
   const [cartAdded, setCartAdded] = useState(false)
   const [cartError, setCartError] = useState('')
 
+  // Código de desconto (vale para 1 unidade)
+  const [codeInput, setCodeInput] = useState('')
+  const [appliedCode, setAppliedCode] = useState<ValidCode | null>(null)
+  const [checkingCode, setCheckingCode] = useState(false)
+  const [codeError, setCodeError] = useState('')
+
   const checkFavStatus = async () => {
     const user = getCurrentUser()
     if (user && currentProduct?.id) {
@@ -116,6 +131,9 @@ function ProductPage() {
     setQuantity(1)
     setCartAdded(false)
     setCartError('')
+    setCodeInput('')
+    setAppliedCode(null)
+    setCodeError('')
 
     checkFavStatus()
 
@@ -148,18 +166,57 @@ function ProductPage() {
     setCartError('')
     setCartAdded(false)
 
+    const baseItem = {
+      item_type: 'product' as const,
+      product_id: String(currentProduct.id),
+      product_slug: currentProduct.slug ?? null,
+      name: currentProduct.name,
+      variant_name: selectedVariant.name ?? null,
+      color_name: selectedColor?.name ?? null,
+      image: currentProduct.images?.[0]?.src ?? null,
+    }
+
     try {
-      await addToCart(user.handle, {
-        item_type: 'product',
-        product_id: String(currentProduct.id),
-        product_slug: currentProduct.slug ?? null,
-        name: currentProduct.name,
-        variant_name: selectedVariant.name ?? null,
-        color_name: selectedColor?.name ?? null,
-        unit_price: unitPrice,
-        quantity,
-        image: currentProduct.images?.[0]?.src ?? null,
-      })
+      if (appliedCode && codeUnitPrice !== null) {
+        // 1) Gasta o código (falha se alguém já o usou)
+        const ok = await redeemDiscountCode(
+          appliedCode.code,
+          user.handle,
+          currentProduct.name,
+        )
+        if (!ok) {
+          setAppliedCode(null)
+          setCodeError('Este código já foi usado.')
+          return
+        }
+
+        // 2) Uma unidade com o código
+        await addToCart(user.handle, {
+          ...baseItem,
+          unit_price: codeUnitPrice,
+          quantity: 1,
+          discount_code: appliedCode.code,
+          original_price: originalUnitPrice,
+        })
+
+        // 3) O resto ao preço normal / de promoção
+        if (quantity > 1) {
+          await addToCart(user.handle, {
+            ...baseItem,
+            unit_price: unitPrice,
+            quantity: quantity - 1,
+          })
+        }
+
+        setAppliedCode(null)
+        setCodeInput('')
+      } else {
+        await addToCart(user.handle, {
+          ...baseItem,
+          unit_price: unitPrice,
+          quantity,
+        })
+      }
       setCartAdded(true)
     } catch (err) {
       console.error('Erro ao adicionar ao carrinho:', err)
@@ -190,12 +247,45 @@ function ProductPage() {
     setIsFav(nextState)
   }
 
-  // Preços: normal e com promoção (por unidade e total)
+  // Preços: normal, com promoção e com código (por unidade e total)
   const originalUnitPrice = Number(selectedVariant.price)
   const unitPrice = applyDiscount(originalUnitPrice, discount)
   const hasDiscount = discount > 0 && unitPrice < originalUnitPrice
   const originalTotal = originalUnitPrice * quantity
-  const totalPrice = unitPrice * quantity
+
+  // O código só vale para 1 unidade e não acumula com a promoção
+  const codeUnitPrice = appliedCode
+    ? priceWithCode(originalUnitPrice, unitPrice, appliedCode)
+    : null
+  const totalPrice =
+    codeUnitPrice !== null
+      ? codeUnitPrice + unitPrice * (quantity - 1)
+      : unitPrice * quantity
+  const priceReduced = totalPrice < originalTotal - 0.001
+
+  const applyCode = async () => {
+    setCodeError('')
+    if (!codeInput.trim()) return
+
+    setCheckingCode(true)
+    try {
+      const found = await checkDiscountCode(codeInput)
+      if (!found) {
+        setCodeError('Código inválido ou já usado.')
+        return
+      }
+      if (priceWithCode(originalUnitPrice, unitPrice, found) >= unitPrice) {
+        setCodeError('A promoção desta peça já é melhor do que o código.')
+        return
+      }
+      setAppliedCode(found)
+    } catch (err) {
+      console.error('Erro ao verificar o código:', err)
+      setCodeError('Não foi possível verificar o código.')
+    } finally {
+      setCheckingCode(false)
+    }
+  }
 
   const messageText = encodeURIComponent(
     `Olá BroMinds! Gostava de encomendar a peça "${currentProduct.name}" no tamanho ${
@@ -204,8 +294,24 @@ function ProductPage() {
       selectedColor ? ` e na cor ${selectedColor.name}` : ''
     }. Quantidade: ${quantity}. (Preço: ${totalPrice.toFixed(2)} €${
       hasDiscount ? ` — em promoção −${Math.round(discount)}%` : ''
-    })`,
+    })${
+      appliedCode && codeUnitPrice !== null
+        ? `\n🎟️ Código de desconto ${appliedCode.code} (${describeCode(
+            appliedCode,
+          )} numa unidade: ${codeUnitPrice.toFixed(2)} €)`
+        : ''
+    }`,
   )
+
+  /** Ao enviar pelo WhatsApp, o código fica marcado como usado */
+  const handleDirectOrderClick = () => {
+    if (!appliedCode) return
+    const code = appliedCode.code
+    void redeemDiscountCode(code, getCurrentUser()?.handle ?? null, currentProduct.name)
+      .catch((err) => console.error('Erro ao marcar o código:', err))
+    setAppliedCode(null)
+    setCodeInput('')
+  }
 
   return (
     <>
@@ -312,21 +418,28 @@ function ProductPage() {
                 )}
 
                 <div className="mt-6">
-                  {hasDiscount && (
-                    <div className="flex items-center gap-2">
+                  {priceReduced && (
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-lg text-ink-3 line-through">
                         {originalTotal.toFixed(2)} €
                       </span>
-                      <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
-                        −{Math.round(discount)}%
-                      </span>
+                      {hasDiscount && (
+                        <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                          −{Math.round(discount)}%
+                        </span>
+                      )}
+                      {appliedCode && (
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600">
+                          🎟️ {appliedCode.code}
+                        </span>
+                      )}
                     </div>
                   )}
 
                   <div className="flex items-end gap-2">
                     <span
                       className={`text-3xl font-extrabold ${
-                        hasDiscount ? 'text-red-600' : 'text-ink'
+                        priceReduced ? 'text-red-600' : 'text-ink'
                       }`}
                     >
                       {totalPrice.toFixed(2)} €
@@ -491,6 +604,73 @@ function ProductPage() {
                   </div>
                 </div>
 
+                {/* Código de desconto */}
+                <div className="mb-5">
+                  {appliedCode ? (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                      <div className="text-sm">
+                        <p className="flex items-center gap-2 font-bold text-red-700">
+                          <Ticket className="h-4 w-4" />
+                          {appliedCode.code} · {describeCode(appliedCode)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-red-700/80">
+                          Aplicado a 1 unidade:{' '}
+                          <strong>{codeUnitPrice?.toFixed(2)} €</strong>
+                          {quantity > 1 && ' (as restantes ficam ao preço normal)'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedCode(null)
+                          setCodeInput('')
+                        }}
+                        className="rounded-full p-1.5 text-red-700 hover:bg-red-100"
+                        aria-label="Remover código"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <label className="mb-2 flex items-center gap-2 text-sm font-bold text-ink">
+                        <Ticket className="h-4 w-4 text-ember" />
+                        Tens um código de desconto?
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={codeInput}
+                          onChange={(e) => {
+                            setCodeInput(e.target.value.toUpperCase())
+                            setCodeError('')
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              void applyCode()
+                            }
+                          }}
+                          placeholder="BRO-XXXXXX"
+                          autoCapitalize="characters"
+                          className="min-w-0 flex-1 rounded-xl border border-paper-3 bg-paper px-4 py-3 font-mono text-sm uppercase tracking-wider text-ink outline-none focus:border-ember"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void applyCode()}
+                          disabled={checkingCode || !codeInput.trim()}
+                          className="rounded-xl border border-paper-3 bg-paper px-4 text-sm font-semibold text-ink transition hover:border-ember hover:text-ember disabled:opacity-50"
+                        >
+                          {checkingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Aplicar'}
+                        </button>
+                      </div>
+                      {codeError && (
+                        <p className="mt-2 text-xs font-medium text-red-600">{codeError}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 {/* Adicionar ao carrinho */}
                 <button
                   type="button"
@@ -569,6 +749,7 @@ function ProductPage() {
                       href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={handleDirectOrderClick}
                       className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember px-6 py-4 font-semibold text-paper shadow-md transition hover:bg-ember-deep active:scale-[0.99]"
                     >
                       <MessageCircle className="h-5 w-5" />
