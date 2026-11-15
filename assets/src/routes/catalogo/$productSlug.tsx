@@ -19,6 +19,13 @@ import { ProductCard } from '@/components/ProductCard'
 import { getCurrentUser, toggleFavorite, getFavoriteProductIds, CustomerUser } from '@/lib/auth'
 import { addToCart, WHATSAPP_CONTACTS } from '@/lib/cart'
 import { applyDiscount } from '@/lib/promo'
+import { THREAD_COLORS, metallicBackground } from '@/lib/threads'
+import type { PackOption } from '@/data/catalog'
+
+/** Preço de um pack: preço da peça × quantidade − desconto do pack */
+function packTotal(piecePrice: number, size: number, discountPercent: number) {
+  return Math.round(piecePrice * size * (1 - discountPercent / 100) * 100) / 100
+}
 import {
   ValidCode,
   checkDiscountCode,
@@ -96,6 +103,29 @@ function ProductPage() {
   const [cartAdded, setCartAdded] = useState(false)
   const [cartError, setCartError] = useState('')
 
+  // Packs (ex.: 1 peça, pack de 5, pack de 10), definidos na categoria
+  const packOptions: PackOption[] = currentProduct.packOptions ?? []
+  const hasPacks = packOptions.length > 0
+  const [selectedPackSize, setSelectedPackSize] = useState(1)
+  const packOptionFor = (size: number) => packOptions.find((p) => p.size === size)
+
+  // Kits: o preço é do kit inteiro; kitSize = peças em cada kit
+  const kitSize: number | null = currentProduct.kitSize ?? null
+  const isKit = kitSize !== null
+
+  /** Nome da opção: "1 peça", "Pack de 5", "1 kit", "2 kits" */
+  const optionLabel = (size: number) =>
+    isKit ? (size === 1 ? '1 kit' : `${size} kits`) : size === 1 ? '1 peça' : `Pack de ${size}`
+
+  /** Total de peças numa opção */
+  const piecesIn = (size: number) => size * (kitSize ?? 1)
+
+  // Cor do fio (pendentes): obrigatória e sem nenhuma escolhida à partida
+  const needsThread = Boolean(currentProduct.threadColors)
+  const [selectedThread, setSelectedThread] = useState<string | null>(null)
+  const [threadError, setThreadError] = useState(false)
+  const missingThread = needsThread && !selectedThread
+
   // Código de desconto (vale para 1 unidade)
   const [codeInput, setCodeInput] = useState('')
   const [appliedCode, setAppliedCode] = useState<ValidCode | null>(null)
@@ -134,6 +164,9 @@ function ProductPage() {
     setCodeInput('')
     setAppliedCode(null)
     setCodeError('')
+    setSelectedThread(null)
+    setThreadError(false)
+    setSelectedPackSize(1)
 
     checkFavStatus()
 
@@ -162,6 +195,11 @@ function ProductPage() {
   }
 
   const addCurrentToCart = async (user: CustomerUser) => {
+    if (missingThread) {
+      setThreadError(true)
+      return
+    }
+
     setAddingToCart(true)
     setCartError('')
     setCartAdded(false)
@@ -170,9 +208,15 @@ function ProductPage() {
       item_type: 'product' as const,
       product_id: String(currentProduct.id),
       product_slug: currentProduct.slug ?? null,
-      name: currentProduct.name,
+      name:
+        isKit
+          ? `${currentProduct.name} (${optionLabel(selectedPackSize)} · ${piecesIn(selectedPackSize)} peças)`
+          : selectedPackSize > 1
+            ? `${currentProduct.name} (Pack de ${selectedPackSize})`
+            : currentProduct.name,
       variant_name: selectedVariant.name ?? null,
       color_name: selectedColor?.name ?? null,
+      thread_color: needsThread ? selectedThread : null,
       image: currentProduct.images?.[0]?.src ?? null,
     }
 
@@ -227,6 +271,11 @@ function ProductPage() {
   }
 
   const handleAddToCart = async () => {
+    if (missingThread) {
+      setThreadError(true)
+      return
+    }
+
     const user = getCurrentUser()
     if (!user) {
       setPendingAction('cart')
@@ -247,11 +296,25 @@ function ProductPage() {
     setIsFav(nextState)
   }
 
-  // Preços: normal, com promoção e com código (por unidade e total)
-  const originalUnitPrice = Number(selectedVariant.price)
-  const unitPrice = applyDiscount(originalUnitPrice, discount)
-  const hasDiscount = discount > 0 && unitPrice < originalUnitPrice
+  // Preços: normal, com promoção, pack e código.
+  // Uma "unidade" aqui é a opção escolhida: 1 peça ou um pack (ex.: 5 peças).
+  const piecePrice = Number(selectedVariant.price)
+  const packPercent = packOptionFor(selectedPackSize)?.discount ?? 0
+  const originalUnitPrice = piecePrice * selectedPackSize
+  const promoUnitPrice = applyDiscount(piecePrice, discount) * selectedPackSize
+  const packUnitPrice = packTotal(piecePrice, selectedPackSize, packPercent)
+  // Não acumula: fica o melhor entre a promoção e o desconto do pack
+  const unitPrice = Math.round(Math.min(promoUnitPrice, packUnitPrice) * 100) / 100
+  const hasDiscount = discount > 0 && promoUnitPrice <= packUnitPrice && unitPrice < originalUnitPrice
+  const hasPackDiscount = packPercent > 0 && packUnitPrice < promoUnitPrice
   const originalTotal = originalUnitPrice * quantity
+  const unitLabel = isKit
+    ? selectedPackSize > 1
+      ? 'conjunto'
+      : 'kit'
+    : selectedPackSize > 1
+      ? 'pack'
+      : 'unidade'
 
   // O código só vale para 1 unidade e não acumula com a promoção
   const codeUnitPrice = appliedCode
@@ -292,9 +355,19 @@ function ProductPage() {
       selectedVariant.name
     }${
       selectedColor ? ` e na cor ${selectedColor.name}` : ''
-    }. Quantidade: ${quantity}. (Preço: ${totalPrice.toFixed(2)} €${
+    }${
+      needsThread && selectedThread ? `, com fio ${selectedThread}` : ''
+    }${
+      isKit
+        ? `. ${optionLabel(selectedPackSize)} de ${kitSize} peças (${piecesIn(selectedPackSize)} peças)`
+        : selectedPackSize > 1
+          ? `. Pack de ${selectedPackSize} peças`
+          : ''
+    }. Quantidade: ${quantity}${
+      !isKit && selectedPackSize > 1 ? (quantity === 1 ? ' pack' : ' packs') : ''
+    }. (Preço: ${totalPrice.toFixed(2)} €${
       hasDiscount ? ` — em promoção −${Math.round(discount)}%` : ''
-    })${
+    }${hasPackDiscount ? ` — desconto −${packPercent}%` : ''})${
       appliedCode && codeUnitPrice !== null
         ? `\n🎟️ Código de desconto ${appliedCode.code} (${describeCode(
             appliedCode,
@@ -428,6 +501,11 @@ function ProductPage() {
                           −{Math.round(discount)}%
                         </span>
                       )}
+                      {hasPackDiscount && (
+                        <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                          Pack −{packPercent}%
+                        </span>
+                      )}
                       {appliedCode && (
                         <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600">
                           🎟️ {appliedCode.code}
@@ -447,11 +525,22 @@ function ProductPage() {
 
                     {quantity > 1 && (
                       <span className="pb-1 text-sm text-ink-3">
-                        {unitPrice.toFixed(2)} € / unidade
+                        {unitPrice.toFixed(2)} € / {unitLabel}
+                      </span>
+                    )}
+                    {piecesIn(selectedPackSize) > 1 && (
+                      <span className="pb-1 text-sm text-ink-3">
+                        ({(unitPrice / piecesIn(selectedPackSize)).toFixed(2)} € / peça)
                       </span>
                     )}
                   </div>
                 </div>
+
+                {isKit && (
+                  <p className="mt-2 inline-block rounded-full bg-paper-2 px-3 py-1 text-xs font-semibold text-ink-2">
+                    Kit de {kitSize} peças
+                  </p>
+                )}
 
                 {/* BOTÃO DE DESTAQUE: FAVORITOS */}
                 <div className="mt-6">
@@ -547,11 +636,16 @@ function ProductPage() {
                   </div>
                 )}
 
-                {/* Cores */}
+                {/* Cores (quadradinhos) */}
                 {currentProduct.colors && currentProduct.colors.length > 0 && (
                   <div className="mb-7">
-                    <h2 className="mb-3 text-sm font-bold text-ink">Cor</h2>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h2 className="text-sm font-bold text-ink">Cor</h2>
+                      {selectedColor && (
+                        <span className="text-xs text-ink-3">{selectedColor.name}</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
                       {currentProduct.colors.map((color: any, index: number) => {
                         const selected = selectedColor?.name === color.name
 
@@ -560,23 +654,151 @@ function ProductPage() {
                             key={`${color.name}-${index}`}
                             type="button"
                             onClick={() => setSelectedColor(color)}
-                            className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                            title={color.name}
+                            aria-label={`Cor ${color.name}`}
+                            aria-pressed={selected}
+                            className={`h-10 w-10 rounded-lg border transition ${
                               selected
-                                ? 'border-ember bg-ember text-paper'
-                                : 'border-paper-3 bg-paper text-ink hover:bg-paper-2'
+                                ? 'border-ink ring-2 ring-ember ring-offset-2 ring-offset-paper'
+                                : 'border-black/15 hover:scale-105'
                             }`}
-                          >
-                            {color.name}
-                          </button>
+                            style={{ backgroundColor: color.hex }}
+                          />
                         )
                       })}
                     </div>
                   </div>
                 )}
 
+                {/* Packs: 1 peça, pack de 5, pack de 10... */}
+                {hasPacks && (
+                  <div className="mb-7">
+                    <h2 className="mb-3 text-sm font-bold text-ink">
+                      {isKit ? `Quantos kits? (cada kit tem ${kitSize} peças)` : 'Quantas peças?'}
+                    </h2>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {[{ size: 1, discount: 0 }, ...packOptions].map((option) => {
+                        const selected = selectedPackSize === option.size
+                        const normal = piecePrice * option.size
+                        const promo = applyDiscount(piecePrice, discount) * option.size
+                        const pack = packTotal(piecePrice, option.size, option.discount)
+                        const price = Math.round(Math.min(promo, pack) * 100) / 100
+
+                        return (
+                          <button
+                            key={option.size}
+                            type="button"
+                            onClick={() => setSelectedPackSize(option.size)}
+                            aria-pressed={selected}
+                            className={`relative rounded-xl border p-3 text-left transition ${
+                              selected
+                                ? 'border-ember bg-ember/5 ring-2 ring-ember/20'
+                                : 'border-paper-3 bg-paper hover:bg-paper-2'
+                            }`}
+                          >
+                            {option.discount > 0 && (
+                              <span className="absolute right-2 top-2 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                −{option.discount}%
+                              </span>
+                            )}
+                            <p className="text-sm font-bold text-ink">
+                              {optionLabel(option.size)}
+                            </p>
+                            {isKit && (
+                              <p className="text-[11px] text-ink-3">
+                                {piecesIn(option.size)} peças
+                              </p>
+                            )}
+                            {price < normal - 0.001 && (
+                              <p className="mt-1 text-xs text-ink-3 line-through">
+                                {normal.toFixed(2)} €
+                              </p>
+                            )}
+                            <p
+                              className={`text-base font-extrabold ${
+                                price < normal - 0.001 ? 'text-red-600' : 'text-ink'
+                              }`}
+                            >
+                              {price.toFixed(2)} €
+                            </p>
+                            {piecesIn(option.size) > 1 && (
+                              <p className="text-[11px] text-ink-3">
+                                {(price / piecesIn(option.size)).toFixed(2)} € / peça
+                              </p>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {piecesIn(selectedPackSize) > 1 && needsThread && (
+                      <p className="mt-2 text-xs text-ink-3">
+                        Todas as peças levam a mesma cor de fio.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Cor do fio (pendentes) */}
+                {needsThread && (
+                  <div
+                    className={`mb-7 rounded-2xl p-3 transition ${
+                      threadError ? 'bg-red-50 ring-1 ring-red-300' : ''
+                    }`}
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <h2 className="text-sm font-bold text-ink">
+                        Cor do fio <span className="text-red-600">*</span>
+                      </h2>
+                      <span
+                        className={`text-xs ${
+                          selectedThread ? 'text-ink-3' : 'font-semibold text-red-600'
+                        }`}
+                      >
+                        {selectedThread ?? 'Escolhe uma cor'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2.5">
+                      {THREAD_COLORS.map((thread) => {
+                        const selected = selectedThread === thread.name
+
+                        return (
+                          <button
+                            key={thread.name}
+                            type="button"
+                            onClick={() => {
+                              setSelectedThread(thread.name)
+                              setThreadError(false)
+                            }}
+                            title={thread.name}
+                            aria-label={`Fio ${thread.name}`}
+                            aria-pressed={selected}
+                            className={`h-10 w-10 rounded-lg border transition ${
+                              selected
+                                ? 'border-ink ring-2 ring-ember ring-offset-2 ring-offset-paper'
+                                : 'border-black/15 hover:scale-105'
+                            }`}
+                            style={{ background: metallicBackground(thread.hex) }}
+                          />
+                        )
+                      })}
+                    </div>
+                    {threadError && (
+                      <p className="mt-2 text-xs font-semibold text-red-600">
+                        Escolhe a cor do fio antes de continuar.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Quantidade */}
                 <div className="mb-7">
-                  <h2 className="mb-3 text-sm font-bold text-ink">Quantidade</h2>
+                  <h2 className="mb-3 text-sm font-bold text-ink">
+                    {isKit
+                      ? 'Quantidade'
+                      : selectedPackSize > 1
+                        ? 'Quantos packs?'
+                        : 'Quantidade'}
+                  </h2>
                   <div className="flex h-12 w-fit items-center overflow-hidden rounded-xl border border-paper-3 bg-paper">
                     <button
                       type="button"
@@ -743,7 +965,16 @@ function ProductPage() {
                 </div>
 
                 {/* Botão WhatsApp */}
-                {selectedContact ? (
+                {selectedContact && missingThread ? (
+                  <button
+                    type="button"
+                    onClick={() => setThreadError(true)}
+                    className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-ember/50 px-6 py-4 font-semibold text-paper"
+                  >
+                    <MessageCircle className="h-5 w-5" />
+                    Escolhe primeiro a cor do fio
+                  </button>
+                ) : selectedContact ? (
                   <>
                     <a
                       href={`https://wa.me/${selectedContact.phone}?text=${messageText}`}

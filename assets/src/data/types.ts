@@ -44,6 +44,14 @@ export interface Category {
   featured: boolean
   /** Promocao da categoria inteira, em % (vazio = sem promocao). */
   discount_percent?: number | null
+  /** Categoria-mae, se esta for uma subcategoria (ex.: Pendentes dentro de Natal). */
+  parent_id?: string | null
+  /** As pecas desta categoria pedem a cor do fio. */
+  thread_colors?: boolean
+  /** Packs com desconto, ex.: [{ size: 5, discount: 10 }, { size: 10, discount: 15 }]. */
+  pack_options?: Array<{ size: number; discount: number }> | null
+  /** Categoria de kits: o preco da peca e o preco do kit inteiro. */
+  is_kit?: boolean
 }
 
 export interface Product {

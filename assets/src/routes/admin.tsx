@@ -433,6 +433,9 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
   >([])
   const [featured, setFeatured] = useState(false)
 
+  // Kits: quantas peças tem o kit (só nas categorias de kits)
+  const [kitSize, setKitSize] = useState('')
+
   // Publicação: false = rascunho (só aparece no admin)
   const [published, setPublished] = useState(false)
 
@@ -574,6 +577,14 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
   const [catImage, setCatImage] = useState('')
   const [catFeatured, setCatFeatured] = useState(false)
   const [catOrder, setCatOrder] = useState(0)
+  // Subcategoria: categoria-mãe (vazio = categoria principal)
+  const [catParentId, setCatParentId] = useState('')
+  // As peças desta categoria pedem a cor do fio
+  const [catThreadColors, setCatThreadColors] = useState(false)
+  // Packs com desconto (texto enquanto se escreve)
+  const [catPacks, setCatPacks] = useState<Array<{ size: string; discount: string }>>([])
+  // Categoria de kits (o preço da peça é o do kit inteiro)
+  const [catIsKit, setCatIsKit] = useState(false)
   const [uploadingCatImage, setUploadingCatImage] = useState(false)
   const catFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -790,10 +801,29 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
       .replace(/[̀-ͯ]/g, '')
       .toLowerCase()
 
-  const categoryName = (id: string | null | undefined) =>
-    categoriesList.find((cat) => cat.id === id)?.name ||
-    id ||
-    'Sem categoria'
+  /** Nome da categoria; nas subcategorias mostra "Natal › Pendentes" */
+  const categoryName = (id: string | null | undefined): string => {
+    const cat = categoriesList.find((c) => c.id === id)
+    if (!cat) return id || 'Sem categoria'
+    const parent = cat.parent_id
+      ? categoriesList.find((c) => c.id === cat.parent_id)
+      : undefined
+    return parent ? `${parent.name} › ${cat.name}` : cat.name
+  }
+
+  /** Categorias principais seguidas das suas subcategorias */
+  const orderedCategories = categoriesList
+    .filter((cat) => !cat.parent_id)
+    .flatMap((cat) => [
+      cat,
+      ...categoriesList.filter((sub) => sub.parent_id === cat.id),
+    ])
+    .concat(
+      // subcategorias cuja mãe já não existe
+      categoriesList.filter(
+        (sub) => sub.parent_id && !categoriesList.some((c) => c.id === sub.parent_id),
+      ),
+    )
 
   const categoryCounts = productsList.reduce<Record<string, number>>(
     (acc, prod) => {
@@ -1038,6 +1068,7 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
     setShortDesc(prod.short_description || '')
     setImagesList(Array.isArray(prod.images) ? prod.images : [])
     setFeatured(Boolean(prod.featured))
+    setKitSize(prod.kit_size ? String(prod.kit_size) : '')
     setPublished(prod.published !== false)
     setCostForm(costInfoToForm(normalizeCostInfo(prod.cost_info)))
 
@@ -1077,6 +1108,7 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
     setShortDesc('')
     setImagesList([])
     setFeatured(false)
+    setKitSize('')
     setPublished(false)
     setCostForm(costInfoToForm(emptyCostInfo()))
 
@@ -1195,6 +1227,10 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
       featured,
       published,
       cost_info: costFormToInfo(costForm),
+      // Só guarda o nº de peças do kit se a categoria for de kits
+      kit_size: categoriesList.find((c) => c.id === categoryId)?.is_kit
+        ? Math.max(1, parseInt(kitSize, 10) || 0) || null
+        : null,
     }
 
     try {
@@ -1315,6 +1351,17 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
     setCatImage(cat.image || '')
     setCatFeatured(Boolean(cat.featured))
     setCatOrder(Number(cat.order || 0))
+    setCatParentId(cat.parent_id || '')
+    setCatThreadColors(Boolean(cat.thread_colors))
+    setCatIsKit(Boolean(cat.is_kit))
+    setCatPacks(
+      Array.isArray(cat.pack_options)
+        ? cat.pack_options.map((p: any) => ({
+            size: String(p.size ?? ''),
+            discount: String(p.discount ?? ''),
+          }))
+        : [],
+    )
 
     setActiveTab('categories')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1329,6 +1376,10 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
     setCatImage('')
     setCatFeatured(false)
     setCatOrder(categoriesList.length + 1)
+    setCatParentId('')
+    setCatThreadColors(false)
+    setCatPacks([])
+    setCatIsKit(false)
   }
 
   const handleSubmitCategory = async (e: React.FormEvent) => {
@@ -1353,6 +1404,19 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
       image: catImage || '/img/placeholder.png',
       featured: catFeatured,
       order: Number(catOrder || 0),
+      parent_id: catParentId || null,
+      thread_colors: catThreadColors,
+      is_kit: catIsKit,
+      pack_options: (() => {
+        const packs = catPacks
+          .map((p) => ({
+            size: Math.round(Number(p.size.replace(',', '.'))),
+            discount: Number(p.discount.replace(',', '.')) || 0,
+          }))
+          .filter((p) => p.size > 1 && p.discount >= 0 && p.discount < 90)
+          .sort((a, b) => a.size - b.size)
+        return packs.length > 0 ? packs : null
+      })(),
     }
 
     try {
@@ -1724,13 +1788,40 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
                 onChange={(e) => setCategoryId(e.target.value)}
                 className="w-full rounded-xl border border-paper-3 bg-paper-2 p-2.5 text-sm outline-none focus:border-ember"
               >
-                {categoriesList.map((cat) => (
+                {orderedCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
-                    {cat.name}
+                    {cat.parent_id ? `   ↳ ${categoryName(cat.id)}` : cat.name}
                   </option>
                 ))}
               </select>
+              {categoriesList.find((c) => c.id === categoryId)?.thread_colors && (
+                <p className="mt-1.5 text-[11px] font-semibold text-ember">
+                  Nesta categoria, o cliente escolhe a cor do fio na página da peça.
+                </p>
+              )}
             </div>
+
+            {/* Kits: nº de peças do kit */}
+            {categoriesList.find((c) => c.id === categoryId)?.is_kit && (
+              <div className="rounded-2xl border border-ember/40 bg-ember/5 p-4">
+                <label className="block text-xs font-bold uppercase tracking-wider text-ink mb-1.5">
+                  Quantas peças tem o kit?
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={kitSize}
+                  onChange={(e) => setKitSize(e.target.value)}
+                  placeholder="Ex: 4"
+                  className="w-32 rounded-xl border border-paper-3 bg-paper p-2.5 text-sm outline-none focus:border-ember"
+                />
+                <p className="mt-1.5 text-[11px] text-ink-3">
+                  Em «Tamanhos e Preços», põe o <strong>preço do kit inteiro</strong>. As
+                  opções «2 kits», «3 kits» e os descontos vêm da categoria.
+                </p>
+              </div>
+            )}
 
             {/* Fotografias */}
             <div>
@@ -2566,6 +2657,137 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
               />
             </div>
 
+            {/* Subcategoria e cor do fio */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-ink mb-1.5">
+                  Dentro de (subcategoria)
+                </label>
+                <select
+                  value={catParentId}
+                  onChange={(e) => setCatParentId(e.target.value)}
+                  className="w-full rounded-xl border border-paper-3 bg-paper-2 p-2.5 text-sm outline-none focus:border-ember"
+                >
+                  <option value="">— Categoria principal —</option>
+                  {categoriesList
+                    .filter((cat) => !cat.parent_id && cat.id !== editingCatId)
+                    .map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                </select>
+                <p className="mt-1 text-[11px] text-ink-3">
+                  Uma subcategoria não aparece sozinha no site: as peças
+                  aparecem na categoria-mãe.
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2 pt-6">
+                <input
+                  type="checkbox"
+                  id="catThread"
+                  checked={catThreadColors}
+                  onChange={(e) => setCatThreadColors(e.target.checked)}
+                  className="mt-0.5 rounded border-paper-3 text-ember"
+                />
+                <label htmlFor="catThread" className="text-xs font-medium text-ink cursor-pointer">
+                  As peças pedem a <strong>cor do fio</strong>
+                  <span className="block text-[11px] text-ink-3">
+                    O cliente tem de escolher a cor antes de encomendar.
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex items-start gap-2 sm:col-start-2">
+                <input
+                  type="checkbox"
+                  id="catKit"
+                  checked={catIsKit}
+                  onChange={(e) => setCatIsKit(e.target.checked)}
+                  className="mt-0.5 rounded border-paper-3 text-ember"
+                />
+                <label htmlFor="catKit" className="text-xs font-medium text-ink cursor-pointer">
+                  É uma categoria de <strong>kits</strong>
+                  <span className="block text-[11px] text-ink-3">
+                    O preço é do kit inteiro e indicas quantas peças tem. Os packs
+                    passam a ser «2 kits», «3 kits»…
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Packs com desconto */}
+            <div className="rounded-2xl border border-paper-3 bg-paper-2/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-ink">
+                    Packs com desconto
+                  </h3>
+                  <p className="text-[11px] text-ink-3">
+                    O preço do pack é calculado sozinho: preço da peça × quantidade −
+                    desconto. Deixa vazio para esta categoria não ter packs.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCatPacks((current) => [...current, { size: '', discount: '' }])
+                  }
+                  className="shrink-0 text-xs flex items-center gap-1 text-ember hover:underline font-semibold"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Adicionar pack
+                </button>
+              </div>
+
+              {catPacks.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {catPacks.map((pack, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-sm">
+                      <span className="text-ink-2">Pack de</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={pack.size}
+                        onChange={(e) =>
+                          setCatPacks((current) =>
+                            current.map((p, i) => (i === idx ? { ...p, size: e.target.value } : p)),
+                          )
+                        }
+                        placeholder="5"
+                        className="w-16 rounded-lg border border-paper-3 bg-paper p-2 text-sm outline-none focus:border-ember"
+                      />
+                      <span className="text-ink-2">peças com</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={pack.discount}
+                        onChange={(e) =>
+                          setCatPacks((current) =>
+                            current.map((p, i) => (i === idx ? { ...p, discount: e.target.value } : p)),
+                          )
+                        }
+                        placeholder="10"
+                        className="w-16 rounded-lg border border-paper-3 bg-paper p-2 text-sm outline-none focus:border-ember"
+                      />
+                      <span className="text-ink-2">% de desconto</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCatPacks((current) => current.filter((_, i) => i !== idx))
+                        }
+                        className="ml-auto text-red-500 p-1"
+                        aria-label="Remover pack"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-6">
               <div className="flex items-center gap-2">
                 <input
@@ -2624,10 +2846,12 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {categoriesList.map((cat) => (
+              {orderedCategories.map((cat) => (
                 <div
                   key={cat.id}
-                  className="flex items-center justify-between gap-3 p-4 bg-paper rounded-2xl border border-paper-3 hover:border-ink/20 transition"
+                  className={`flex items-center justify-between gap-3 p-4 bg-paper rounded-2xl border border-paper-3 hover:border-ink/20 transition ${
+                    cat.parent_id ? 'sm:ml-6 border-dashed' : ''
+                  }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {cat.image ? (
@@ -2644,12 +2868,42 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
 
                     <div className="min-w-0">
                       <h4 className="text-sm font-bold text-ink">
-                        {cat.name}
+                        {categoryName(cat.id)}
                       </h4>
 
                       <p className="text-xs text-ink-3 line-clamp-1">
                         {cat.tagline || cat.description || 'Sem descrição'}
                       </p>
+
+                      {(cat.parent_id || cat.thread_colors || cat.is_kit ||
+                        (Array.isArray(cat.pack_options) && cat.pack_options.length > 0)) && (
+                        <p className="mt-0.5 flex flex-wrap gap-1">
+                          {cat.parent_id && (
+                            <span className="rounded-full bg-paper-2 px-2 py-0.5 text-[10px] font-bold text-ink-3">
+                              Subcategoria
+                            </span>
+                          )}
+                          {cat.thread_colors && (
+                            <span className="rounded-full bg-ember/10 px-2 py-0.5 text-[10px] font-bold text-ember">
+                              Pede cor do fio
+                            </span>
+                          )}
+                          {cat.is_kit && (
+                            <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700">
+                              Kits
+                            </span>
+                          )}
+                          {Array.isArray(cat.pack_options) &&
+                            cat.pack_options.map((p: any) => (
+                              <span
+                                key={p.size}
+                                className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600"
+                              >
+                                {cat.is_kit ? `${p.size} kits` : `Pack ${p.size}`} −{p.discount}%
+                              </span>
+                            ))}
+                        </p>
+                      )}
 
                       <span className="text-[10px] font-mono text-ink-3">
                         slug: /{cat.slug || cat.id}

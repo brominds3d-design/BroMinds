@@ -28,6 +28,8 @@ export interface CartItem {
   discount_code: string | null
   /** Preço antes do código, para mostrar riscado */
   original_price: number | null
+  /** Cor do fio (pendentes) */
+  thread_color: string | null
   created_at: string
 }
 
@@ -44,6 +46,7 @@ export interface NewCartItem {
   details?: string[]
   discount_code?: string | null
   original_price?: number | null
+  thread_color?: string | null
 }
 
 /** Contactos para onde a encomenda pode ser enviada */
@@ -87,11 +90,14 @@ export function isDefaultVariant(name: string | null | undefined) {
   return clean === 'único' || clean === 'unico' || clean === 'tamanho único'
 }
 
-/** Texto curto com tamanho e cor, ex.: "Tamanho M · Cor Branco" */
-export function cartItemOptions(item: Pick<CartItem, 'variant_name' | 'color_name'>) {
+/** Texto curto com tamanho e cores, ex.: "Tamanho M · Cor Branco · Fio Dourado" */
+export function cartItemOptions(
+  item: Pick<CartItem, 'variant_name' | 'color_name'> & { thread_color?: string | null },
+) {
   const parts: string[] = []
   if (!isDefaultVariant(item.variant_name)) parts.push(`Tamanho ${item.variant_name}`)
   if (item.color_name) parts.push(`Cor ${item.color_name}`)
+  if (item.thread_color) parts.push(`Fio ${item.thread_color}`)
   return parts.join(' · ')
 }
 
@@ -118,6 +124,7 @@ export async function getCartItems(handle: string): Promise<CartItem[]> {
     details: Array.isArray(row.details) ? row.details : [],
     discount_code: row.discount_code ?? null,
     original_price: row.original_price != null ? Number(row.original_price) : null,
+    thread_color: row.thread_color ?? null,
   }))
 }
 
@@ -144,6 +151,7 @@ export async function addToCart(handle: string, item: NewCartItem) {
   const variantName = item.variant_name ?? null
   const colorName = item.color_name ?? null
   const discountCode = item.discount_code ?? null
+  const threadColor = item.thread_color ?? null
 
   // Peças com código nunca se juntam a outras (ficam sempre com quantidade 1)
   if (itemType === 'product' && item.product_id && !discountCode) {
@@ -153,6 +161,7 @@ export async function addToCart(handle: string, item: NewCartItem) {
       .eq('user_handle', handle)
       .eq('item_type', 'product')
       .eq('product_id', item.product_id)
+      .eq('name', item.name) // "Rena" e "Rena (Pack de 5)" ficam separados
       .is('discount_code', null)
 
     query = variantName
@@ -162,6 +171,10 @@ export async function addToCart(handle: string, item: NewCartItem) {
     query = colorName
       ? query.eq('color_name', colorName)
       : query.is('color_name', null)
+
+    query = threadColor
+      ? query.eq('thread_color', threadColor)
+      : query.is('thread_color', null)
 
     const { data: existing, error: findError } = await query
       .limit(1)
@@ -198,6 +211,7 @@ export async function addToCart(handle: string, item: NewCartItem) {
       details: item.details ?? [],
       discount_code: discountCode,
       original_price: item.original_price ?? null,
+      thread_color: threadColor,
     },
   ])
 
