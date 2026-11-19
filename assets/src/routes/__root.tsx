@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 import { Footer } from '@/components/Footer'
 import { Header } from '@/components/Header'
+import { SeasonalTheme } from '@/components/SeasonalTheme'
 import { site } from '@/data/site'
 
 import '../styles.css'
@@ -71,6 +72,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         >
           Saltar para o conteúdo
         </a>
+
+        {/* Temas Black Friday / Natal (só quando a campanha está a decorrer) */}
+        <SeasonalTheme />
 
         <Header />
 

@@ -94,7 +94,7 @@ export function ProductCard({ product, delay = 0 }: ProductCardProps) {
         {/* Selo de promoção no topo esquerdo */}
         {discount > 0 && (
           <span className="absolute left-3 top-3 z-10 rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
-            −{Math.round(discount)}%
+            {product.promoLabel ? `${product.promoLabel} ` : ''}−{Math.round(discount)}%
           </span>
         )}
 

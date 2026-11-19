@@ -42,7 +42,16 @@ import {
   listDiscountCodes,
   releaseDiscountCode,
 } from '@/lib/discountCodes'
-import { applyDiscount, discountSource, effectiveDiscount } from '@/lib/promo'
+import {
+  applyDiscount,
+  campaignDiscountFor,
+  campaignStatus,
+  CampaignRule,
+  describeRule,
+  discountSource,
+  effectiveDiscount,
+  PromoCampaign,
+} from '@/lib/promo'
 import {
   COST_SETTINGS,
   CostInfo,
@@ -147,6 +156,137 @@ function costFormToInfo(form: CostForm): CostInfo {
 }
 
 const euro = (value: number) => `${value.toFixed(2).replace('.', ',')} €`
+
+// ============================================================
+// CAMPANHAS — formulário (texto) ↔ Supabase
+// ============================================================
+
+type CampaignRuleForm = {
+  type: 'all' | 'category' | 'price' | 'exclude_category'
+  categoryId: string
+  min: string
+  max: string
+  percent: string
+}
+
+type CampaignForm = {
+  id?: string
+  name: string
+  startsAt: string // 'AAAA-MM-DDTHH:MM' (hora local)
+  endsAt: string
+  theme: string // '' = sem tema | 'black-friday'
+  rules: CampaignRuleForm[]
+}
+
+const emptyRule = (): CampaignRuleForm => ({
+  type: 'all',
+  categoryId: '',
+  min: '',
+  max: '',
+  percent: '',
+})
+
+function emptyCampaignForm(): CampaignForm {
+  return { name: '', startsAt: '', endsAt: '', theme: '', rules: [emptyRule()] }
+}
+
+/** Exemplo pronto: Black Friday até ao fim da Cyber Monday */
+function blackFridayPreset(): CampaignForm {
+  const year = new Date().getFullYear()
+  // 4.ª quinta-feira de novembro + 1 dia = Black Friday
+  const nov1 = new Date(year, 10, 1)
+  const firstThursday = 1 + ((4 - nov1.getDay() + 7) % 7)
+  const blackFriday = firstThursday + 21 + 1
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  return {
+    name: 'Black Friday',
+    startsAt: `${year}-11-${pad(blackFriday)}T00:00`,
+    endsAt: `${year}-12-01T00:00`, // inclui a Cyber Monday
+    theme: 'black-friday',
+    rules: [
+      { type: 'price', categoryId: '', min: '', max: '5', percent: '15' },
+      { type: 'price', categoryId: '', min: '5', max: '10', percent: '20' },
+      { type: 'price', categoryId: '', min: '10', max: '', percent: '25' },
+    ],
+  }
+}
+
+function isoToLocalInput(iso: string | null) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function campaignToForm(c: PromoCampaign): CampaignForm {
+  return {
+    id: c.id,
+    name: c.name,
+    startsAt: isoToLocalInput(c.starts_at),
+    endsAt: isoToLocalInput(c.ends_at),
+    theme: c.theme ?? '',
+    rules: (c.rules.length ? c.rules : [{ type: 'all', percent: 0 } as CampaignRule]).map(
+      (r: any) => ({
+        type: r.type,
+        categoryId: r.category_id ?? '',
+        min: r.min != null ? String(r.min) : '',
+        max: r.max != null ? String(r.max) : '',
+        percent: r.percent ? String(r.percent) : '',
+      }),
+    ),
+  }
+}
+
+/** Valida e converte; devolve uma mensagem de erro se algo estiver mal */
+function formToCampaign(
+  form: CampaignForm,
+): Pick<PromoCampaign, 'name' | 'starts_at' | 'ends_at' | 'rules' | 'theme'> | string {
+  const name = form.name.trim()
+  if (!name) return 'Dá um nome à campanha (ex.: Black Friday).'
+
+  const num = (t: string) => {
+    const v = Number(t.trim().replace(',', '.'))
+    return t.trim() && Number.isFinite(v) ? v : null
+  }
+
+  const rules: CampaignRule[] = []
+  for (const [i, r] of form.rules.entries()) {
+    // Exclusão: não tem percentagem
+    if (r.type === 'exclude_category') {
+      if (!r.categoryId) return `Regra ${i + 1}: escolhe a categoria a excluir.`
+      rules.push({ type: 'exclude_category', category_id: r.categoryId })
+      continue
+    }
+
+    const percent = num(r.percent)
+    if (percent === null || percent <= 0 || percent > 90) {
+      return `Regra ${i + 1}: indica uma percentagem entre 1 e 90.`
+    }
+    if (r.type === 'all') rules.push({ type: 'all', percent })
+    if (r.type === 'category') {
+      if (!r.categoryId) return `Regra ${i + 1}: escolhe a categoria.`
+      rules.push({ type: 'category', category_id: r.categoryId, percent })
+    }
+    if (r.type === 'price') {
+      const min = num(r.min)
+      const max = num(r.max)
+      if (min === null && max === null) return `Regra ${i + 1}: indica um preço mínimo e/ou máximo.`
+      if (min !== null && max !== null && min > max) return `Regra ${i + 1}: o mínimo é maior do que o máximo.`
+      rules.push({ type: 'price', min, max, percent })
+    }
+  }
+  // Sem descontos só é permitido se a campanha servir para ligar um tema
+  if (!rules.some((r) => r.type !== 'exclude_category') && !form.theme) {
+    return 'Adiciona pelo menos uma regra com desconto (ou escolhe um tema).'
+  }
+
+  const starts = form.startsAt ? new Date(form.startsAt).toISOString() : null
+  const ends = form.endsAt ? new Date(form.endsAt).toISOString() : null
+  if (starts && ends && starts >= ends) return 'A data de fim tem de ser depois da de início.'
+
+  return { name, starts_at: starts, ends_at: ends, rules, theme: form.theme || null }
+}
 
 /** Interruptor (switch) igual ao da app de encomendas */
 function Toggle({
@@ -413,6 +553,11 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
   const [promoSavingKey, setPromoSavingKey] = useState<string | null>(null)
   const [promoSuccess, setPromoSuccess] = useState('')
   const [promoError, setPromoError] = useState('')
+
+  // Campanhas de promoção (ex.: Black Friday)
+  const [campaigns, setCampaigns] = useState<PromoCampaign[]>([])
+  const [campaignForm, setCampaignForm] = useState<CampaignForm | null>(null)
+  const [campaignBusy, setCampaignBusy] = useState<string | null>(null)
 
   // Feedback geral
   const [loading, setLoading] = useState(false)
@@ -994,6 +1139,146 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
       setPromoError(err?.message || 'Não foi possível guardar a promoção.')
     } finally {
       setPromoSavingKey(null)
+    }
+  }
+
+  // ============================================================
+  // CAMPANHAS DE PROMOÇÃO
+  // ============================================================
+
+  const loadCampaigns = async () => {
+    const { data, error } = await supabase
+      .from('promo_campaigns')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      setPromoError('Não foi possível carregar as campanhas: ' + error.message)
+      return
+    }
+    setCampaigns(
+      (data ?? []).map((c: any) => ({ ...c, rules: Array.isArray(c.rules) ? c.rules : [] })),
+    )
+  }
+
+  useEffect(() => {
+    if (activeTab === 'promotions') void loadCampaigns()
+  }, [activeTab])
+
+  /** Dados que as regras usam, a partir de uma linha da tabela products */
+  const campaignTargetOf = (prod: any) => ({
+    categoryId: prod.category_id ?? null,
+    parentCategoryId:
+      categoriesList.find((c) => c.id === prod.category_id)?.parent_id ?? null,
+    price: Number(prod.base_price || 0),
+    excluded: Boolean(prod.no_campaigns),
+  })
+
+  /** Liga/desliga "Fora das campanhas" numa peça */
+  const toggleNoCampaigns = async (prod: any) => {
+    const next = !prod.no_campaigns
+    setPromoSavingKey(`nocamp-${prod.id}`)
+    setPromoError('')
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ no_campaigns: next })
+        .eq('id', prod.id)
+      if (error) throw error
+      setProductsList((current) =>
+        current.map((item) => (item.id === prod.id ? { ...item, no_campaigns: next } : item)),
+      )
+      setPromoSuccess(
+        next
+          ? `"${prod.name}" fica fora das campanhas.`
+          : `"${prod.name}" volta a entrar nas campanhas.`,
+      )
+    } catch (err: any) {
+      setPromoError(err?.message || 'Não foi possível guardar.')
+    } finally {
+      setPromoSavingKey(null)
+    }
+  }
+
+  /** Quantas peças publicadas uma campanha apanha (como se estivesse ligada) */
+  const campaignReach = (campaign: Pick<PromoCampaign, 'rules'>) =>
+    productsList.filter(
+      (prod) =>
+        prod.published !== false &&
+        campaignDiscountFor(campaignTargetOf(prod), [
+          { id: 'x', name: 'x', active: true, starts_at: null, ends_at: null, rules: campaign.rules },
+        ]).percent > 0,
+    ).length
+
+  const openCampaignForm = (campaign?: PromoCampaign) => {
+    setPromoError('')
+    setPromoSuccess('')
+    setCampaignForm(campaign ? campaignToForm(campaign) : emptyCampaignForm())
+  }
+
+  const saveCampaign = async () => {
+    if (!campaignForm) return
+    const parsed = formToCampaign(campaignForm)
+    if (typeof parsed === 'string') {
+      setPromoError(parsed)
+      return
+    }
+
+    setCampaignBusy('form')
+    setPromoError('')
+    try {
+      const { error } = campaignForm.id
+        ? await supabase.from('promo_campaigns').update(parsed).eq('id', campaignForm.id)
+        : await supabase.from('promo_campaigns').insert([{ ...parsed, active: false }])
+      if (error) throw error
+
+      setCampaignForm(null)
+      setPromoSuccess(
+        campaignForm.id
+          ? `Campanha "${parsed.name}" atualizada.`
+          : `Campanha "${parsed.name}" criada. Liga-a quando quiseres.`,
+      )
+      await loadCampaigns()
+    } catch (err: any) {
+      setPromoError(err?.message || 'Não foi possível guardar a campanha.')
+    } finally {
+      setCampaignBusy(null)
+    }
+  }
+
+  const toggleCampaign = async (campaign: PromoCampaign) => {
+    setCampaignBusy(campaign.id)
+    setPromoError('')
+    try {
+      const { error } = await supabase
+        .from('promo_campaigns')
+        .update({ active: !campaign.active })
+        .eq('id', campaign.id)
+      if (error) throw error
+      setPromoSuccess(
+        campaign.active
+          ? `Campanha "${campaign.name}" desligada. Os preços voltaram ao normal.`
+          : `Campanha "${campaign.name}" ligada!`,
+      )
+      await loadCampaigns()
+    } catch (err: any) {
+      setPromoError(err?.message || 'Não foi possível mudar a campanha.')
+    } finally {
+      setCampaignBusy(null)
+    }
+  }
+
+  const deleteCampaign = async (campaign: PromoCampaign) => {
+    if (!confirm(`Apagar a campanha "${campaign.name}"?`)) return
+    setCampaignBusy(campaign.id)
+    try {
+      const { error } = await supabase.from('promo_campaigns').delete().eq('id', campaign.id)
+      if (error) throw error
+      await loadCampaigns()
+    } catch (err: any) {
+      setPromoError(err?.message || 'Não foi possível apagar a campanha.')
+    } finally {
+      setCampaignBusy(null)
     }
   }
 
@@ -3370,6 +3655,367 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
             </div>
           )}
 
+          {/* ===== Campanhas (ex.: Black Friday) ===== */}
+          <section className="rounded-2xl border-2 border-ink bg-paper p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-xl font-extrabold text-ink">Campanhas</h3>
+                <p className="mt-1 text-xs text-ink-3">
+                  Regras gerais que ligas e desligas com um clique. Com datas, ligam e
+                  desligam sozinhas. Cada peça fica com o maior desconto: o da campanha
+                  ou o que já tinha.
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPromoError('')
+                    setCampaignForm(blackFridayPreset())
+                  }}
+                  className="rounded-xl bg-ink px-3 py-2 text-xs font-semibold text-paper hover:bg-ember"
+                >
+                  🖤 Black Friday (exemplo)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openCampaignForm()}
+                  className="flex items-center gap-1 rounded-xl border border-paper-3 px-3 py-2 text-xs font-semibold text-ink hover:bg-paper-2"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Nova
+                </button>
+              </div>
+            </div>
+
+            {/* Formulário */}
+            {campaignForm && (
+              <div className="mt-5 rounded-2xl border border-paper-3 bg-paper-2/60 p-4 space-y-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                      Nome
+                    </label>
+                    <input
+                      type="text"
+                      value={campaignForm.name}
+                      onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })}
+                      placeholder="Ex.: Black Friday"
+                      className="w-full rounded-xl border border-paper-3 bg-paper p-2.5 text-sm outline-none focus:border-ember"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                      Começa (opcional)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={campaignForm.startsAt}
+                      onChange={(e) => setCampaignForm({ ...campaignForm, startsAt: e.target.value })}
+                      className="w-full rounded-xl border border-paper-3 bg-paper p-2.5 text-sm outline-none focus:border-ember"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                      Acaba (opcional)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={campaignForm.endsAt}
+                      onChange={(e) => setCampaignForm({ ...campaignForm, endsAt: e.target.value })}
+                      className="w-full rounded-xl border border-paper-3 bg-paper p-2.5 text-sm outline-none focus:border-ember"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-1">
+                    Tema do site enquanto decorre
+                  </label>
+                  <select
+                    value={campaignForm.theme}
+                    onChange={(e) => setCampaignForm({ ...campaignForm, theme: e.target.value })}
+                    className="w-full rounded-xl border border-paper-3 bg-paper p-2.5 text-sm outline-none focus:border-ember sm:w-72"
+                  >
+                    <option value="">Nenhum (só os descontos)</option>
+                    <option value="black-friday">🖤 Black Friday (site preto + entrada + contagem)</option>
+                    <option value="natal">🎄 Natal (cores de Natal + neve)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-ink-2 mb-2">
+                    Regras
+                  </p>
+                  <div className="space-y-2">
+                    {campaignForm.rules.map((rule, idx) => {
+                      const update = (patch: Partial<CampaignRuleForm>) =>
+                        setCampaignForm({
+                          ...campaignForm,
+                          rules: campaignForm.rules.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+                        })
+                      const small =
+                        'w-20 rounded-lg border border-paper-3 bg-paper p-2 text-sm outline-none focus:border-ember'
+
+                      return (
+                        <div
+                          key={idx}
+                          className="flex flex-wrap items-center gap-2 rounded-xl border border-paper-3 bg-paper p-2.5 text-sm"
+                        >
+                          <select
+                            value={rule.type}
+                            onChange={(e) => update({ type: e.target.value as CampaignRuleForm['type'] })}
+                            className="rounded-lg border border-paper-3 bg-paper-2 p-2 text-sm outline-none"
+                          >
+                            <option value="all">Todas as peças</option>
+                            <option value="category">Categoria</option>
+                            <option value="price">Preço</option>
+                            <option value="exclude_category">Excluir categoria</option>
+                          </select>
+
+                          {(rule.type === 'category' || rule.type === 'exclude_category') && (
+                            <select
+                              value={rule.categoryId}
+                              onChange={(e) => update({ categoryId: e.target.value })}
+                              className="rounded-lg border border-paper-3 bg-paper-2 p-2 text-sm outline-none"
+                            >
+                              <option value="">Escolher...</option>
+                              {orderedCategories.map((cat) => (
+                                <option key={cat.id} value={cat.id}>
+                                  {cat.parent_id ? `↳ ${categoryName(cat.id)}` : cat.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+
+                          {rule.type === 'price' && (
+                            <>
+                              <span className="text-ink-2">de</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={rule.min}
+                                onChange={(e) => update({ min: e.target.value })}
+                                placeholder="—"
+                                className={small}
+                              />
+                              <span className="text-ink-2">€ até</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={rule.max}
+                                onChange={(e) => update({ max: e.target.value })}
+                                placeholder="—"
+                                className={small}
+                              />
+                              <span className="text-ink-2">€</span>
+                            </>
+                          )}
+
+                          {rule.type === 'exclude_category' ? (
+                            <span className="text-xs font-semibold text-ink-3">
+                              fica sem desconto nesta campanha
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-ink-2">→ −</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={rule.percent}
+                                onChange={(e) => update({ percent: e.target.value })}
+                                placeholder="20"
+                                className={small}
+                              />
+                              <span className="text-ink-2">%</span>
+                            </>
+                          )}
+
+                          {campaignForm.rules.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCampaignForm({
+                                  ...campaignForm,
+                                  rules: campaignForm.rules.filter((_, i) => i !== idx),
+                                })
+                              }
+                              className="ml-auto p-1 text-red-500"
+                              aria-label="Remover regra"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCampaignForm({ ...campaignForm, rules: [...campaignForm.rules, emptyRule()] })
+                    }
+                    className="mt-2 flex items-center gap-1 text-xs font-semibold text-ember hover:underline"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Adicionar regra
+                  </button>
+                  <p className="mt-2 text-[11px] text-ink-3">
+                    Preço = preço normal da peça. Deixa «de» ou «até» vazio para não ter
+                    limite. Se uma peça cumprir várias regras, fica a de maior desconto.
+                  </p>
+                </div>
+
+                {(() => {
+                  const parsed = formToCampaign(campaignForm)
+                  return typeof parsed === 'string' ? null : (
+                    <p className="text-xs font-semibold text-ink">
+                      Esta campanha vai apanhar{' '}
+                      <span className="text-red-600">{campaignReach(parsed)}</span> peças
+                      publicadas.
+                    </p>
+                  )
+                })()}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveCampaign()}
+                    disabled={campaignBusy === 'form'}
+                    className="flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-paper hover:bg-ember disabled:opacity-50"
+                  >
+                    {campaignBusy === 'form' && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {campaignForm.id ? 'Guardar alterações' : 'Criar campanha'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCampaignForm(null)}
+                    className="rounded-xl border border-paper-3 px-4 py-2.5 text-sm font-semibold text-ink-2 hover:bg-paper-2"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Lista */}
+            {campaigns.length === 0 && !campaignForm ? (
+              <p className="mt-5 rounded-xl border border-dashed border-paper-3 p-5 text-center text-sm text-ink-3">
+                Ainda não tens campanhas. Começa pelo exemplo da Black Friday.
+              </p>
+            ) : (
+              <div className="mt-5 space-y-3">
+                {campaigns.map((c) => {
+                  const status = campaignStatus(c)
+                  const statusInfo = {
+                    live: { text: 'A decorrer', cls: 'bg-green-100 text-green-700' },
+                    scheduled: { text: 'Agendada', cls: 'bg-amber-100 text-amber-800' },
+                    ended: { text: 'Terminada', cls: 'bg-paper-2 text-ink-3' },
+                    off: { text: 'Desligada', cls: 'bg-paper-2 text-ink-3' },
+                  }[status]
+                  const fmt = (iso: string) =>
+                    new Date(iso).toLocaleString('pt-PT', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+
+                  return (
+                    <div
+                      key={c.id}
+                      className={`rounded-xl border p-4 ${
+                        status === 'live' ? 'border-green-400 bg-green-50/40' : 'border-paper-3'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-bold text-ink">{c.name}</h4>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${statusInfo.cls}`}>
+                              {statusInfo.text}
+                            </span>
+                            {c.theme === 'black-friday' && (
+                              <span className="rounded-full bg-black px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                                Tema Black Friday
+                              </span>
+                            )}
+                            {c.theme === 'natal' && (
+                              <span className="rounded-full bg-[#c62828] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                                Tema Natal
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-ink-3">
+                            {c.starts_at || c.ends_at ? (
+                              <>
+                                {c.starts_at ? `De ${fmt(c.starts_at)}` : 'Já'}
+                                {c.ends_at ? ` até ${fmt(c.ends_at)}` : ' sem fim'}
+                              </>
+                            ) : (
+                              'Sem datas (só pelo interruptor)'
+                            )}
+                            {' · '}
+                            {campaignReach(c)} peças
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {c.rules.map((r, i) => (
+                              <span
+                                key={i}
+                                className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700"
+                              >
+                                {describeRule(r, (id) => categoryName(id))}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="w-36">
+                            <Toggle
+                              label={c.active ? 'Ligada' : 'Desligada'}
+                              checked={c.active}
+                              onChange={() => void toggleCampaign(c)}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openCampaignForm(c)}
+                            disabled={campaignBusy === c.id}
+                            className="rounded-lg border border-paper-3 p-2 hover:bg-paper-2"
+                            title="Editar"
+                          >
+                            <Edit3 className="h-4 w-4 text-ember" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteCampaign(c)}
+                            disabled={campaignBusy === c.id}
+                            className="rounded-lg p-2 text-red-500 hover:bg-red-50"
+                            title="Apagar"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {status === 'scheduled' && (
+                        <p className="mt-2 text-[11px] text-amber-800">
+                          Está ligada e começa sozinha na data marcada.
+                        </p>
+                      )}
+                      {status === 'off' && c.starts_at && (
+                        <p className="mt-2 text-[11px] text-ink-3">
+                          Liga o interruptor para ela começar sozinha na data marcada.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
           {/* Promoção por categoria */}
           <section>
             <h3 className="text-xl font-bold text-ink">Promoção por categoria</h3>
@@ -3586,6 +4232,20 @@ function AdminDashboard({ currentAdmin }: { currentAdmin: CustomerUser }) {
                           Seguir categoria
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        disabled={promoSavingKey === `nocamp-${prod.id}`}
+                        onClick={() => void toggleNoCampaigns(prod)}
+                        title="Esta peça nunca entra em campanhas (ex.: Black Friday)"
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:opacity-50 ${
+                          prod.no_campaigns
+                            ? 'border-ink bg-ink text-paper'
+                            : 'border-paper-3 text-ink-2 hover:text-ink'
+                        }`}
+                      >
+                        {prod.no_campaigns ? '✕ Fora das campanhas' : 'Tirar das campanhas'}
+                      </button>
 
                       {source === 'category' && (
                         <button

@@ -2,7 +2,7 @@
  * Camada de consulta do catálogo integrada 100% com o Supabase.
  */
 import { supabase } from '@/lib/supabase'
-import { effectiveDiscount } from '@/lib/promo'
+import { campaignDiscountFor, effectiveDiscount, PromoCampaign } from '@/lib/promo'
 import type { Category, Product } from './types'
 
 export interface ProductVariant {
@@ -18,6 +18,8 @@ export interface ProductWithCategory extends Omit<Product, 'price'> {
   category: Category | undefined
   /** Desconto em % que se aplica a esta peça (0 = sem promoção) */
   discountPercent: number
+  /** Nome da campanha que dá o desconto (ex.: "Black Friday"), se for o caso */
+  promoLabel: string | null
   /** Subcategoria (ex.: 'pendentes'), se a peça estiver numa */
   subcategoryId: string | null
   /** true = o cliente tem de escolher a cor do fio */
@@ -45,7 +47,11 @@ function normalizePackOptions(raw: unknown): PackOption[] {
 
 const byOrder = (a: Category, b: Category) => a.order - b.order
 
-function mapSupabaseProduct(row: any, categoriesList: Array<Category> = []): ProductWithCategory {
+function mapSupabaseProduct(
+  row: any,
+  categoriesList: Array<Category> = [],
+  campaigns: PromoCampaign[] = [],
+): ProductWithCategory {
   const variants: Array<ProductVariant> = Array.isArray(row.variants) ? row.variants : []
   const basePrice = Number(row.base_price ?? (variants[0]?.price || 0))
 
@@ -56,6 +62,23 @@ function mapSupabaseProduct(row: any, categoriesList: Array<Category> = []): Pro
     ? categoriesList.find((c) => c.id === ownCategory.parent_id)
     : undefined
   const category = parentCategory ?? ownCategory
+
+  // Promoção normal: da peça; senão da subcategoria; senão da categoria-mãe
+  const ownPromo = effectiveDiscount(
+    row.discount_percent,
+    ownCategory?.discount_percent ?? parentCategory?.discount_percent,
+  )
+  // Campanha ligada (ex.: Black Friday): fica o maior dos dois descontos
+  const campaign = campaignDiscountFor(
+    {
+      categoryId: row.category_id,
+      parentCategoryId: parentCategory?.id ?? null,
+      price: basePrice,
+      excluded: Boolean(row.no_campaigns),
+    },
+    campaigns,
+  )
+  const useCampaign = campaign.percent > ownPromo
 
   return {
     id: String(row.id),
@@ -80,11 +103,8 @@ function mapSupabaseProduct(row: any, categoriesList: Array<Category> = []): Pro
     featured: Boolean(row.featured),
     createdAt: row.created_at || new Date().toISOString(),
     category,
-    // Promoção própria da peça; senão a da subcategoria; senão a da categoria-mãe
-    discountPercent: effectiveDiscount(
-      row.discount_percent,
-      ownCategory?.discount_percent ?? parentCategory?.discount_percent,
-    ),
+    discountPercent: useCampaign ? campaign.percent : ownPromo,
+    promoLabel: useCampaign ? campaign.name : null,
   }
 }
 
@@ -125,10 +145,23 @@ export async function getCategoryBySlug(slug: string): Promise<Category | undefi
   return data as Category
 }
 
+/** Campanhas de promoção ligadas (a data é verificada peça a peça) */
+export async function getActiveCampaigns(): Promise<PromoCampaign[]> {
+  const { data, error } = await supabase
+    .from('promo_campaigns')
+    .select('*')
+    .eq('active', true)
+
+  // Se a tabela ainda não existir, o site continua a funcionar sem campanhas
+  if (error || !data) return []
+  return data.map((c: any) => ({ ...c, rules: Array.isArray(c.rules) ? c.rules : [] }))
+}
+
 /** Busca todos os produtos do Supabase */
 export async function getProducts(): Promise<Array<ProductWithCategory>> {
-  const [categoriesData, productsData] = await Promise.all([
+  const [categoriesData, campaigns, productsData] = await Promise.all([
     getAllCategories(),
+    getActiveCampaigns(),
     supabase
       .from('products')
       .select('*')
@@ -141,14 +174,15 @@ export async function getProducts(): Promise<Array<ProductWithCategory>> {
     return []
   }
 
-  return productsData.data.map((row) => mapSupabaseProduct(row, categoriesData))
+  return productsData.data.map((row) => mapSupabaseProduct(row, categoriesData, campaigns))
 }
 
 export async function getProductBySlug(
   slug: string,
 ): Promise<ProductWithCategory | undefined> {
-  const [categoriesData, productData] = await Promise.all([
+  const [categoriesData, campaigns, productData] = await Promise.all([
     getAllCategories(),
+    getActiveCampaigns(),
     supabase
       .from('products')
       .select('*')
@@ -161,7 +195,7 @@ export async function getProductBySlug(
     return undefined
   }
 
-  return mapSupabaseProduct(productData.data, categoriesData)
+  return mapSupabaseProduct(productData.data, categoriesData, campaigns)
 }
 
 export async function getProductsByCategory(
